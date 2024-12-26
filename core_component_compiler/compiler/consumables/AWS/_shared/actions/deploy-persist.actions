@@ -1,0 +1,285 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set status_details = { "Scope": "component", "Consumable": app[component_name].Type, "Environment": context.Environment } %}
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/deploy/start"
+  DependsOn:
+    - "{{ context.BuildPrn }}:action/pre-deploy/*"
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Component deploy started
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# == Stage: gather-facts ==
+- Type: AWS::GetStackOutputs
+  Label: "{{ context.ComponentPrn }}:action/deploy/gather-facts/release"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/start"
+  Condition: "{{ (enable_persistence | d(True)) and (app[component_name].Persist | d(False) == True) }}"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.release_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Gathering facts about released build
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Gathered facts about released build
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to gather facts about released build
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+- Type: System::SetVariables
+  Label: "{{ context.ComponentPrn }}:action/deploy/gather-facts/persistence"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/gather-facts/release"
+  Params:
+    Variables:
+      # If persist is true and there is a released stack - persist the released build, else do not persist the build
+      Persist: "{{ '{{' }} ('{{ context.ComponentPrn }}:var/deploy/gather-facts/release/ResourcesStackName' | lookup('')) != '' {{ '}}' }}"
+      ResourcesStackName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/deploy/gather-facts/release/ResourcesStackName' | lookup('{{ names.resources_stack_name }}') {{ '}}' }}"
+      BaseStackName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/deploy/gather-facts/release/BaseStackName' | lookup('{{ names.base_stack_name }}') {{ '}}' }}"
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/deploy/gather-facts"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/gather-facts/*"
+
+
+# == Stage: security-items ==
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/security-items"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/gather-facts"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.security_items_stack_name }}"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/security-items.yaml"
+    Tags:
+      {{ 'branch' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating security items
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created security items
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create security items
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# == Stage: deploy ==
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/start"
+  DependsOn:
+    - "{{ context.BuildPrn }}:*:action/deploy/security-items"
+    # User-specified component dependencies
+    {% for dependency in (app[component_name].DependsOn | ensure_list) %}
+    - "{{ context.BuildPrn }}:{{ dependency }}:action/deploy/main"
+    {% endfor %}
+
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/base-security-rules"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/start"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.security_rules_stack_name }}"
+    StackParameters:
+      KmsKeyArn: "{{ '{{' }} '{{ context.BuildPrn }}:output/KmsKeyArn' | lookup('') {{ '}}' }}"
+      SecurityStackName: "{{ names.security_items_stack_name }}"
+      Stage: "base"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/security-rules.yaml"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating base security rules
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created base security rules
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create base security rules
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Upload context to S3
+- Type: AWS::UploadContext
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/upload-context"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/start"
+  Condition: "('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
+  Params:
+    Bucket: "{{ context.FilesBucketName }}"
+    Region: "{{ context.FilesBucketRegion }}"
+    Prefix: "{{ context.BuildFilesPrefix }}/{{ component_name }}/context"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Uploading context variables
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Uploaded context variables
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to upload context variables
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# If persistence is false: create the resources stack
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/resources"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/base-security-rules"
+    - "{{ context.ComponentPrn }}:action/deploy/main/upload-context"
+  Condition: "('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.resources_stack_name }}"
+    StackParameters:
+      ImageId: "{{ '{{' }} '{{ context.ComponentPrn }}:var/deploy/main/bake-image/ImageId' | lookup('_NULL_') {{ '}}' }}"
+      SecurityStackName: "{{ names.security_items_stack_name }}"
+      KmsKeyArn: "{{ '{{' }} '{{ context.BuildPrn }}:output/KmsKeyArn' | lookup('') {{ '}}' }}"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/deploy-resources.yaml"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+    {% if resources_timeout_in_minutes is defined %}
+    TimeoutInMinutes: {{ resources_timeout_in_minutes }}
+    {% endif %}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating resources
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created resources
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create resources
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Update the security rules stack
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/security-rules"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/resources"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.security_rules_stack_name }}"
+    StackParameters:
+      KmsKeyArn: "{{ '{{' }} '{{ context.BuildPrn }}:output/KmsKeyArn' | lookup('') {{ '}}' }}"
+      ResourcesStackName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/ResourcesStackName' | lookup {{ '}}' }}"
+      SecurityStackName: "{{ names.security_items_stack_name }}"
+      Stage: "final"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/security-rules.yaml"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating remaining security rules
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created remaining security rules
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create remaining security rules
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Create the pointers stack
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/pointers"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/resources"
+  SaveOutputs: true
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.pointers_stack_name }}"
+    StackParameters:
+      BaseStackName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/BaseStackName' | lookup {{ '}}' }}"
+      ResourcesStackName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/ResourcesStackName' | lookup {{ '}}' }}"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/deploy-pointers.yaml"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating deployment pointers
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created deployment pointers
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create pointers
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Collect all deploy actions under single action name
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/deploy/main"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/*"
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/deploy/success"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main"
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: DEPLOY_COMPLETE
+          Message: "Component deploy successful"
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

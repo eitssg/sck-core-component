@@ -1,0 +1,27 @@
+AWS::ApplicationLoadBalancer:
+  _Type: Component
+
+  Configuration:
+
+    ApplicationLoadBalancer:
+      Pipeline::Security:
+        _Type: Pipeline::IpSecurity
+      Properties:
+        Scheme:
+          _Type: string
+          _StringEnum: [ internal, internet-facing ]
+
+    Listener:
+      _KeyRegex: ".*Listener"
+      _KeyCardinality: 0-20
+      _Type: Resource::AWS::ElasticLoadBalancingV2::Listener::ALB
+
+    ListenerRule:
+      _KeyRegex: ".*ListenerRule"
+      _KeyCardinality: 0-50
+      _Type: Resource::AWS::ElasticLoadBalancingV2::ListenerRule
+
+    TargetGroup:
+      _KeyRegex: ".*TargetGroup"
+      _KeyCardinality: 1-20
+      _Type: Resource::Custom::ALB-TargetGroup

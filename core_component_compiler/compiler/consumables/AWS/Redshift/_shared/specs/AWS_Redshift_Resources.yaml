@@ -1,0 +1,13 @@
+AWS::Redshift::ClusterParameterGroup:
+  Properties:
+    Description:
+      _Type: string
+    # RDS uses 'Family', Redshift uses 'ParameterGroupFamily' which is confusing.
+    # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-redshift-clusterparametergroup.html
+    ParameterGroupFamily:
+      _Type: string
+    Parameters:
+      Parameter:
+        _KeyRegex: '.*'
+        _KeyCardinality: 1+
+        _Type: scalar

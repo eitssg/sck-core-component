@@ -1,0 +1,288 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+# CLB/ALB suppport.
+{% set config = app[component_name].Configuration %}
+{% set load_balancer = config.get('LoadBalancer', config.get('ApplicationLoadBalancer')) %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::AutoScaleAlbLt- {{ component_name }} - security rules
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  ResourcesStackName:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+  Stage:
+    Type: String
+    Default: "final"
+
+Conditions:
+  KmsKeyExists: { "Fn::Not": [ "Fn::Equals": [ Ref: KmsKeyArn, "" ] ] }
+  BakeStage: { "Fn::Equals": [ Ref: Stage, "bake" ] }
+  NotBakeStage: { "Fn::Not": [ Condition: BakeStage ] }
+
+Resources:
+  DefaultImport:
+    Metadata:
+      DefaultImport:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:DefaultExport"
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+  # LB security group to instance security group on TCP:*
+  IpRuleLbSecurityGroupToSecurityGroupOnAll:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "Allow all from load balancer"
+      GroupId:
+        Fn::ImportValue:
+          Fn::Sub: ${SecurityStackName}:SecurityGroupId
+      IpProtocol: TCP
+      FromPort: 0
+      ToPort: 65535
+      SourceSecurityGroupId:
+        Fn::ImportValue:
+          Fn::Sub: ${SecurityStackName}:LbSecurityGroupId
+
+  # Base KMS key policy
+  KmsBasePolicy:
+    Type: AWS::IAM::Policy
+    Condition: KmsKeyExists
+    Properties:
+      PolicyName: base-kms-{{ context.Build }}
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Allow use of the KMS key
+          - Effect: Allow
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:ReEncrypt*
+            Resource:
+              - Ref: KmsKeyArn
+      Roles:
+        - Fn::ImportValue:
+            Fn::Sub: ${SecurityStackName}:RoleName
+
+  # Default instance role policy
+  RoleBasePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: base-{{ context.Build }}
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Allow instances to put metrics into CloudWatch
+          - Effect: Allow
+            Action:
+              - cloudwatch:PutMetricData
+            Resource:
+              - "*"
+
+          # Allow instances to describe resources
+          - Effect: Allow
+            Action:
+              - ec2:Describe*
+            Resource:
+              - "*"
+
+          # Allow SSM to discover and update system info
+          - Effect: Allow
+            Action:
+              - ssm:DescribeAssociation
+              - ssm:GetDeployablePatchSnapshotForInstance
+              - ssm:GetDocument
+              - ssm:GetManifest
+              - ssm:GetParameters
+              - ssm:GetParametersByPath
+              - ssm:ListAssociations
+              - ssm:ListInstanceAssociations
+              - ssm:PutInventory
+              - ssm:PutComplianceItems
+              - ssm:PutConfigurePackageResult
+              - ssm:UpdateAssociationStatus
+              - ssm:UpdateInstanceAssociationStatus
+              - ssm:UpdateInstanceInformation
+              - ssm:DescribeDocument
+              - ssm:ListDocuments
+            Resource:
+              - "*"
+
+          # Allow SSM to send and receive messages to instances
+          - Effect: Allow
+            Action:
+              - ec2messages:AcknowledgeMessage
+              - ec2messages:DeleteMessage
+              - ec2messages:FailMessage
+              - ec2messages:GetEndpoint
+              - ec2messages:GetMessages
+              - ec2messages:SendReply
+            Resource:
+              - "*"
+
+          # Allow SSM session manager to create sessions
+          - Effect: Allow
+            Action:
+              - ssmmessages:CreateControlChannel
+              - ssmmessages:CreateDataChannel
+              - ssmmessages:OpenControlChannel
+              - ssmmessages:OpenDataChannel
+            Resource:
+              - "*"
+
+          - Effect: Allow
+            Action:
+              - s3:GetEncryptionConfiguration
+            Resource:
+              - "*"
+              
+          # Allow Ansible aws_s3 module to perform HEAD Operation at the bucket level
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+            Resource:
+              - "arn:aws:s3:::{{ context.FilesBucketName }}"
+
+          # Allow instances to retrieve files
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource:
+              - "arn:aws:s3:::{{ context.FilesBucketName }}/{{ context.SharedFilesPrefix }}/*"
+              - "arn:aws:s3:::{{ context.FilesBucketName }}/{{ context.BuildFilesPrefix }}/*"
+
+          # Allow instances to write to CloudWatch Logs
+          - Effect: Allow
+            Action:
+              - cloudwatch:PutMetricData
+              - ec2:DescribeVolumes
+              - ec2:DescribeTags
+              - logs:DescribeLogGroups
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:DescribeLogStreams
+            Resource:
+              - Fn::Sub: "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:{{ names.log_group_name }}"
+              - Fn::Sub: "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:{{ names.log_group_name }}:*"
+
+          # Allow instances to DescribeMountTargets in EFS
+          - Effect: Allow
+            Action:
+              - elasticfilesystem:DescribeMountTargets
+            Resource:
+              # TODO Should restrict to app by tags? What about mounting another app's EFS FileSystem?
+              - Fn::Sub: "arn:aws:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/*"
+
+          # Allow instances to access certain SSM PS paths
+          # See https://docs.aws.amazon.com/systems-manager/latest/userguide/sysman-paramstore-su-organize.html
+          - Effect: Allow
+            Action:
+              - ssm:GetParameter
+              - ssm:GetParametersByPath
+              - ssm:PutParameter
+            Resource:
+              - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/{{ context.Portfolio }}/{{ context.App }}/*"
+
+          # Parameter Store access with decryption
+          # Recommended to structure the parameter store naming convention similar to prn to restrict kms access based on prn
+          - Effect: Allow
+            Action:
+              - kms:Decrypt
+            Resource:
+              - Fn::Sub: "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/*"
+
+          # Secrets Manager
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource:
+              - Fn::Sub: "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:{{ context.Portfolio }}-{{ context.App }}-*"
+
+          {% if 'DefaultIamPolicyStatements' in context %}
+          # Default IAM policy statements
+          {{ context.DefaultIamPolicyStatements | to_yaml | indent(10) }}
+          {% endif %}
+      Roles:
+        - Fn::ImportValue:
+            Fn::Sub: ${SecurityStackName}:RoleName
+
+  # == Load balancer security rules ==
+  {% for rule in load_balancer | ip_rules %}
+  LbIpRule{{ loop.index }}:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "{{ rule.Description }}"
+      GroupId:
+        Fn::ImportValue:
+          Fn::Sub: ${SecurityStackName}:LbSecurityGroupId
+      IpProtocol: {{ rule.Protocol }}
+      FromPort: {{ rule.FromPort }}
+      ToPort: {{ rule.ToPort }}
+      {% if rule.Type == 'cidr' %}
+      CidrIp: "{{ rule.Value }}"
+      {% elif rule.Type == 'prefix' %}
+      SourcePrefixListId: "{{ rule.Value }}"
+      {% else %}
+      SourceSecurityGroupId:
+        Fn::ImportValue: "{{ rule.Value }}"
+      {% endif %}
+
+  {% endfor %}
+
+  {% if 'BakeInstance' in app[component_name].Configuration %}
+  # == Bake security rules ==
+  {% for rule in app[component_name].Configuration.BakeInstance | ip_rules %}
+  BakeIpRule{{ loop.index }}:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: BakeStage
+    Properties:
+      Description: "{{ rule.Description }}"
+      GroupId:
+        Fn::ImportValue:
+          Fn::Sub: ${SecurityStackName}:SecurityGroupId
+      IpProtocol: {{ rule.Protocol }}
+      FromPort: {{ rule.FromPort }}
+      ToPort: {{ rule.ToPort }}
+      {% if rule.Type == 'cidr' %}
+      CidrIp: "{{ rule.Value }}"
+      {% else %}
+      SourceSecurityGroupId:
+        Fn::ImportValue: "{{ rule.Value }}"
+      {% endif %}
+
+  {% endfor %}
+  {% endif %}
+
+  # == ASG security rules ==
+  {% for rule in app[component_name].Configuration.AutoScalingGroup | ip_rules %}
+  AsgIpRule{{ loop.index }}:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: NotBakeStage
+    Properties:
+      Description: "{{ rule.Description }}"
+      GroupId:
+        Fn::ImportValue:
+          Fn::Sub: ${SecurityStackName}:SecurityGroupId
+      IpProtocol: {{ rule.Protocol }}
+      FromPort: {{ rule.FromPort }}
+      ToPort: {{ rule.ToPort }}
+      {% if rule.Type == 'cidr' %}
+      CidrIp: "{{ rule.Value }}"
+      {% else %}
+      SourceSecurityGroupId:
+        Fn::ImportValue: "{{ rule.Value }}"
+      {% endif %}
+
+  {% endfor %}

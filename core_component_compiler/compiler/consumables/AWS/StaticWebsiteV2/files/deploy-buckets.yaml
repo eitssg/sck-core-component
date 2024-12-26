@@ -1,0 +1,143 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::StaticWebsite - {{ component_name }} - buckets
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Resources:
+  DefaultImport:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Metadata:
+      DefaultImport:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:DefaultExport"
+
+  # CloudFront file origin bucket
+  FileBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+{% set resource = app[component_name].Configuration.Distribution %}
+  # CloudFront access log bucket
+  LogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+        {% if 'LogBucketAclEnable' in resource.Properties.DistributionConfig and resource.Properties.DistributionConfig.LogBucketAclEnable == true %}
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+        {% endif %}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # other buckets
+  {% if 'AdditionalBucketsEnable' in resource.Properties.DistributionConfig and resource.Properties.DistributionConfig.AdditionalBucketsEnable == True and 'AdditionalBuckets' in resource.Properties.DistributionConfig %}
+    {% for bucket in resource.Properties.DistributionConfig.AdditionalBuckets %}
+  {{ bucket + 'Bucket' }}:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+    {% endfor %}
+  {% endif %}
+
+Outputs:
+  DefaultExport:
+    Value:
+      Ref: AWS::StackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DefaultExport"
+
+  FileBucketArn:
+    Value:
+      Fn::GetAtt: [ FileBucket, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:FileBucketArn"
+
+  FileBucketName:
+    Value:
+      Ref: FileBucket
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:FileBucketName"
+
+  {% if 'AdditionalBucketsEnable' in resource.Properties.DistributionConfig and resource.Properties.DistributionConfig.AdditionalBucketsEnable == True and 'AdditionalBuckets' in resource.Properties.DistributionConfig %}
+  {% for bucket in resource.Properties.DistributionConfig.AdditionalBuckets %}
+  {{ bucket + 'AddonBucketArn' }}:
+    Value:
+      Fn::GetAtt: [ {{ bucket + 'Bucket' }}, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:{{ bucket + 'AddonBucketArn' }}"
+
+  {{ bucket + 'AddonBucketName' }}:
+    Value:
+      Ref: {{ bucket + 'Bucket' }}
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:{{ bucket + 'AddonBucketName' }}"
+
+  {% endfor %}
+  {% endif %}
+
+  LogBucketArn:
+    Value:
+      Fn::GetAtt: [ LogBucket, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LogBucketArn"
+
+  LogBucketDomainName:
+    Value:
+      Fn::GetAtt: [ LogBucket, DomainName ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LogBucketDomainName"
+
+  LogBucketName:
+    Value:
+      Ref: LogBucket
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LogBucketName"
+
+  RegionalHostedZoneName:
+    Value:
+      Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:RegionalHostedZoneName
+
+  PublicOnlyRegionalHostedZoneName:
+    Value:
+      Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:PublicOnlyRegionalHostedZoneName

@@ -1,0 +1,6 @@
+{% set resource = app[component_name].Configuration.Bucket %}
+{% set scope = resource | extract('Properties.BucketName."Fn::Pipeline::S3BucketName".Scope', 'build') %}
+{% if scope == 'branch' %}
+{% set resources_stack_name = [ context.Portfolio, context.App, context.BranchShortName, component_name, "resources" ] | join("-") %}
+{% endif %}
+{% include "AWS/_shared/actions/release-persist.actions" %}

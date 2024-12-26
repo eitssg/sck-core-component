@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::SQS::Queue - {{ component_name }} - security rules
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  ResourcesStackName:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+  Stage:
+    Type: String
+    Default: "final"
+
+Conditions:
+  FinalStage: { "Fn::Equals": [ Ref: Stage, "final" ] }
+
+Resources:
+  DefaultImport:
+    Metadata:
+      DefaultImport:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:DefaultExport"
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+  {% for rule in app[component_name].Configuration.Queue | iam_rules %}
+  IamPolicy{{ loop.index }}:
+    Type: AWS::IAM::Policy
+    Condition: FinalStage
+    Properties:
+      PolicyName: {{ component_name }}-{{ context.Build }}-x{{ loop.index }}
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              # Common permissions
+              - sqs:Get*
+              {% if 'read' in rule.Allow %}
+              # Read permissions
+              - sqs:ChangeMessageVisibility*
+              - sqs:DeleteMessage*
+              - sqs:ReceiveMessage
+              {% endif %}
+              {% if 'write' in rule.Allow %}
+              # Write permissions
+              - sqs:SendMessage*
+              {% endif %}
+              {% if 'admin' in rule.Allow %}
+              # Admin permissions
+              - sqs:PurgeQueue
+              {% endif %}
+            Resource:
+              - Fn::ImportValue:
+                  Fn::Sub: "${ResourcesStackName}:QueueArn"
+      Roles:
+        - Fn::ImportValue: "{{ rule.Value }}"   # {{ rule.Description }}
+
+  {% endfor %}

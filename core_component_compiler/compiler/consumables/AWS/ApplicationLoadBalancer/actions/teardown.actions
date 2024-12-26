@@ -1,0 +1,13 @@
+{% include "AWS/_shared/actions/teardown-persist.actions" %}
+
+# Wait for ALB to finish tearing down its resources, before allowing Serverless to start tearing down theirs. Fn::ImportValue and all that.
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/post-teardown/resources-wait"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/resources"
+  Before: # I.e. "this action runs before the following listed actions..."
+    {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('TargetGroup') %}
+    {# Only ever 1 Target per TargetGroup. #}
+    {% set serverless_component_name = resource.Properties.Targets[0].Id['Fn::Pipeline::GetOutput'].Component %}
+    - "{{ context.BuildPrn }}:{{ serverless_component_name }}:action/teardown/start"
+    {% endfor %}

@@ -1,0 +1,158 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::Serverless - {{ component_name }} - pointers
+
+Parameters:
+  BaseStackName:
+    Type: String
+
+  ResourcesStackName:
+    Type: String
+
+Resources:
+  # Function version
+  DeploymentVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName:
+        Fn::ImportValue:
+          Fn::Sub: "${ResourcesStackName}:FunctionName"
+
+  # Alias for the version
+  DeploymentAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName:
+        Fn::ImportValue:
+          Fn::Sub: "${ResourcesStackName}:FunctionName"
+      FunctionVersion:
+        Fn::GetAtt: [ DeploymentVersion, Version ]
+      Name: "build-{{ context.Build }}"
+
+  # Per-build CloudWatch Events rules
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('EventRule') %}
+  {% set scope = resource | extract('Properties.Targets[0].Arn."Fn::Pipeline::LambdaArn".Scope', 'build') %}
+  {% if scope == 'build' %}
+  {{ resource_name }}:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "{{ resource.Properties.Description | d(resource_name) }}"
+      ScheduleExpression: "{{ resource.Properties.ScheduleExpression }}"
+      Targets:
+        {% set target = resource | extract('Properties.Targets[0]', {}) %}
+        - Arn:
+            Ref: DeploymentAlias
+          Id: {{ resource_name }}Target
+          {% if 'Input' in target %}
+          Input:
+            {{ target.Input | to_yaml | indent(12) }}
+          {% endif %}
+          {% if 'InputPath' in target %}
+          InputPath:
+            {{ target.InputPath | to_yaml | indent(12) }}
+          {% endif %}
+          {% if 'InputTransformer' in target %}
+          InputTransformer:
+            {{ target.InputTransformer | to_yaml | indent(12) }}
+          {% endif %}
+
+  {{ resource_name }}Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: DeploymentAlias
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt: [{{ resource_name }}, Arn]
+
+  {% endif %}
+  {% endfor %}
+
+  # Per-build SNS topic subscriptions
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('TopicSubscription') %}
+  {% set scope = resource | extract('Properties.Endpoint."Fn::Pipeline::LambdaArn".Scope', 'build') %}
+  {% if scope == 'build' %}
+  {% set topic_component = resource | extract('Properties.TopicArn."Fn::Pipeline::GetOutput".Component') %}
+  {% set topic_name = resource | extract('Properties.TopicArn."Fn::Pipeline::GetOutput".OutputName') | regex_replace('Arn$', '') %}
+  {% set topic_name = [ context.Portfolio, context.App, context.BranchShortName, topic_component, topic_name ] | join("-") %}
+  {{ resource_name }}:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint:
+        Ref: DeploymentAlias
+      Protocol: lambda
+      TopicArn:
+        Fn::Sub: "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:{{ topic_name }}"
+
+  {{ resource_name }}Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: DeploymentAlias
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn:
+        Fn::Sub: "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:{{ topic_name }}"
+
+  {% endif %}
+  {% endfor %}
+
+Outputs:
+  Build:
+    Value: "{{ context.Build }}"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:Build"
+
+  DeploymentAliasArn:
+    Value:
+      Ref: DeploymentAlias
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DeploymentAliasArn"
+
+  DeploymentVersion:
+    Value:
+      Fn::GetAtt: [ DeploymentVersion, Version ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DeploymentVersion"
+
+  FunctionArn:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:FunctionArn"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:FunctionArn"
+
+  FunctionName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:FunctionName"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:FunctionName"
+
+  BaseStackName:
+    Value:
+      Ref: BaseStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BaseStackName"
+
+  PointersStackName:
+    Value:
+      Ref: "AWS::StackName"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:PointersStackName"
+
+  ResourcesStackName:
+    Value:
+      Ref: ResourcesStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:ResourcesStackName"

@@ -1,0 +1,63 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::SNS::Topic - {{ component_name }} - pointers
+
+Parameters:
+  BaseStackName:
+    Type: String
+
+  ResourcesStackName:
+    Type: String
+
+Resources:
+  DefaultImport:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Metadata:
+      TopicArn:
+        Fn::ImportValue:
+          Fn::Sub: "${ResourcesStackName}:TopicArn"
+
+Outputs:
+  Build:
+    Value: "{{ context.Build }}"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:Build"
+
+  BaseStackName:
+    Value:
+      Ref: BaseStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BaseStackName"
+
+  PointersStackName:
+    Value:
+      Ref: "AWS::StackName"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:PointersStackName"
+
+  ResourcesStackName:
+    Value:
+      Ref: ResourcesStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:ResourcesStackName"
+
+  TopicArn:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:TopicArn"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:TopicArn"
+
+  TopicName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:TopicName"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:TopicName"

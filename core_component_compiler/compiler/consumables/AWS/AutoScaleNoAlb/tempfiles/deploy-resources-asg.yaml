@@ -1,0 +1,238 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% macro include_userdata(image_name) %}
+{% if 'amazon-linux' in image_name or 'rhel' in image_name or 'centos' in image_name %}
+{% include "AWS/AutoScaleNoAlb/userdata/deploy-linux.sh" %}
+{% elif 'win' in image_name %}
+{% include "AWS/AutoScaleNoAlb/userdata/deploy-windows.ps1" %}
+{% else %}
+{{ raise("Unknown image '" + image_name + "', cannot load userdata") }}
+{% endif %}
+{% endmacro %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::AutoScale - {{ component_name }} - resources
+
+Parameters:
+  ImageId:
+    Type: String
+    Default: "NO_BAKE_IMAGE"
+  KmsKeyArn:
+    Type: String
+    Default: ""
+  SecurityStackName:
+    Type: String
+
+Resources:
+
+  # Autoscaling group
+  {% set resource = app[component_name].Configuration.AutoScalingGroup %}
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    CreationPolicy:
+      AutoScalingCreationPolicy:
+        MinSuccessfulInstancesPercent: {{ resource | extract('CreationPolicy.AutoScalingCreationPolicy.MinSuccessfulInstancesPercent', 100) | min_int(context.get('MinSuccessfulInstancesPercent', 100)) }}
+      ResourceSignal:
+        Count: {{ resource.Properties.DesiredCapacity | d(resource.Properties.MinSize) }}
+        Timeout: {{ resource | extract('CreationPolicy.ResourceSignal.Timeout', 'PT15M') }}
+    Properties:
+      Cooldown: {{ resource.Properties.Cooldown | d({'Ref': 'AWS::NoValue'}) }}
+      DesiredCapacity: {{ resource.Properties.DesiredCapacity | d({'Ref': 'AWS::NoValue'}) }}
+      HealthCheckGracePeriod: {{ resource.Properties.HealthCheckGracePeriod | d(300) }}
+      HealthCheckType: ELB
+      LaunchConfigurationName:
+        Ref: LaunchConfiguration
+      MaxSize: {{ resource.Properties.MaxSize }}
+      MinSize: {{ resource.Properties.MinSize }}
+      {% if resource.Properties.LifecycleHookSpecificationList is defined %}
+      LifecycleHookSpecificationList:
+        {{ resource.Properties.LifecycleHookSpecificationList | to_yaml | indent(8) }}
+      {% endif %}
+      TargetGroupARNs:
+###to do . currently support onle one target group###
+        - {{ resource.Properties.TargetGroupArn }}
+      VPCZoneIdentifier:
+        {% if (app[component_name].Configuration.AutoScalingGroup.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['app'] }}1Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['app'] }}2Id"
+        {% if context.AzCount >= 3 %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['app'] }}3Id"
+        {% endif %}
+        {% else %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}2Id"
+        {% if context.AzCount >= 3 %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}3Id"
+        {% endif %}
+        {% endif %}
+      MetricsCollection:
+        - Granularity: 1Minute
+
+  # Launch configuration
+  {% set resource = app[component_name].Configuration.LaunchConfiguration %}
+  {% if 'BakeInstance' in app[component_name].Configuration %}
+  {% set bake_resource = app[component_name].Configuration.BakeInstance %}
+  {% set image_alias = bake_resource.Properties.ImageId | image_name %}
+  {% else %}
+  {% set image_alias = resource.Properties.ImageId | image_name %}
+  {% endif %}
+  LaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          default:
+            - agents
+            {% if 'config' in resource | extract('Metadata."AWS::CloudFormation::Init"', {}) %}
+            - config
+            {% endif %}
+            {% if 'win' in image_alias %}
+            - finalise
+            {% endif %}
+        agents:
+          files:
+            {{ agent_files(resource, component_name, image_alias, context, 'nobake') | indent(12) }}
+          commands:
+            {{ agent_commands(resource, image_alias, context, 'nobake') | indent(12) }}
+          services:
+            {{ agent_services(resource, image_alias, context, 'nobake') | indent(12) }}
+        finalise:
+          commands:
+            00-signal-success:
+              command: !Sub 'cfn-signal.exe -e 0 --region ${AWS::Region} --stack ${AWS::StackId} --resource AutoScalingGroup'
+              waitAfterCompletion: '0'
+        {% if 'Metadata' in resource %}
+        {% if "AWS::CloudFormation::Init" in resource.Metadata %}
+        {{ resource | extract('Metadata."AWS::CloudFormation::Init"', {}) | process_cfn_init | to_yaml | indent(8) }}
+        {% endif %}
+        {% endif %}
+      AWS::CloudFormation::Authentication:
+        S3AccessAuth:
+          type: s3
+          roleName:
+            Fn::ImportValue:
+              Fn::Sub: "${SecurityStackName}:RoleName"
+          buckets:
+            - "{{ context.FilesBucketName }}"
+    Properties:
+      {% if 'BlockDeviceMappings' in resource.Properties %}
+      BlockDeviceMappings:
+        {{ resource.Properties.BlockDeviceMappings | ebs_encrypt | to_yaml | indent(8) }}
+      {% endif %}
+      EbsOptimized: {{ resource.Properties.EbsOptimized | d(false) }}
+      {% if 'BakeInstance' in app[component_name].Configuration %}
+      ImageId:
+        Ref: ImageId
+      {% else %}
+      ImageId: "{{ resource.Properties.ImageId | image_id }}"
+      {% endif %}
+      IamInstanceProfile:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:InstanceProfileName"
+      InstanceMonitoring: true
+      InstanceType: {{ resource.Properties.InstanceType }}
+      KeyName: {{ resource.Properties.KeyName | default({ 'Ref': 'AWS::NoValue' }) }}
+      SecurityGroups:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:SecurityGroupId"
+        {% for rule in app[component_name].Configuration.AutoScalingGroup | ip_rules(source_types=['sg-attachment']) %}
+        - Fn::ImportValue: "{{ rule.Value }}"   # {{ rule.Description }}
+        {% endfor %}
+      {% if 'MetadataOptions' in app[component_name].Configuration.LaunchConfiguration.Properties %}
+      MetadataOptions:
+        HttpTokens: required
+      {% endif %}
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            {{ include_userdata(image_alias) | indent(12) }}
+
+  # Log group metric filters
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('LogGroupMetricFilter') %}
+  {{ resource_name }}:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      FilterPattern: {{ resource.Properties.FilterPattern }}
+      LogGroupName: {{ names.log_group_name }}
+      MetricTransformations:
+      {% for transformation in resource.Properties.MetricTransformations %}
+        - MetricValue: {{ transformation.MetricValue }}
+          {% if transformation.DefaultValue is defined %}
+          DefaultValue: {{ transformation.DefaultValue }}
+          {% endif %}
+          MetricName: {{ transformation.MetricName }}
+          MetricNamespace: {{ names.log_group_name }}
+      {% endfor %}
+  {% endfor %}
+
+  # Alarms
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('Alarm') %}
+  {% set namespace = names.log_group_name if resource_name.endswith('LogGroupMetricAlarm') else resource.Properties.Namespace | d('AWS/EC2') %}
+  {{ resource_name }}:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      {% if resource.Properties.AlarmName is defined %}
+      AlarmName: "{{ resource.Properties.AlarmName }}"
+      {% endif %}
+      {% if resource.Properties.AlarmDescription is defined %}
+      AlarmDescription: "{{ resource.Properties.AlarmDescription }}"
+      {% endif %}
+      ActionsEnabled: true
+      AlarmActions: {{ resource.Properties.AlarmActions }}
+      ComparisonOperator: {{ resource.Properties.ComparisonOperator }}
+      {% if resource.Properties.Dimensions is defined %}
+      Dimensions:
+        {{ resource.Properties.Dimensions | to_yaml | indent(8) }}
+      {% elif not resource_name.endswith('LogGroupMetricAlarm') %}
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value:
+            Ref: AutoScalingGroup
+      {% endif %}
+      EvaluationPeriods: {{ resource.Properties.EvaluationPeriods | d(3) }}
+      MetricName: {{ resource.Properties.MetricName | d('CPUUtilization') }}
+      Namespace: {{ namespace }}
+      Period: {{ resource.Properties.Period | d(60, true) }}
+      Statistic: {{ resource.Properties.Statistic | d('Average', true) }}
+      Threshold: {{ resource.Properties.Threshold }}
+  {% endfor %}
+
+  # Scaling policies
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('ScalingPolicy') %}
+  {{ resource_name }}:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName:
+        Ref: AutoScalingGroup
+      Cooldown: {{ resource.Properties.Cooldown }}
+      {% if resource.Properties.MetricAggregationType is defined %}
+      MetricAggregationType: {{ resource.Properties.MetricAggregationType }}
+      {% endif %}
+      {% if resource.Properties.PolicyType is defined %}
+      PolicyType: {{ resource.Properties.PolicyType }}
+      {% endif %}
+      ScalingAdjustment: {{ resource.Properties.ScalingAdjustment }}
+  {% endfor %}
+
+  # Scheduled actions
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('ScheduledAction') %}
+  {{ resource_name }}:
+    Type: AWS::AutoScaling::ScheduledAction
+    Properties:
+      AutoScalingGroupName:
+        Ref: AutoScalingGroup
+      DesiredCapacity: {{ resource.Properties.DesiredCapacity | default({ 'Ref': 'AWS::NoValue' }) }}
+      MaxSize: {{ resource.Properties.MaxSize | default({ 'Ref': 'AWS::NoValue' }) }}
+      MinSize: {{ resource.Properties.MinSize | default({ 'Ref': 'AWS::NoValue' }) }}
+      Recurrence: {{ resource.Properties.Recurrence | default({ 'Ref': 'AWS::NoValue' }) }}
+  {% endfor %}
+
+Outputs:
+
+  AutoScalingGroupName:
+    Value:
+      Ref: AutoScalingGroup
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:AutoScalingGroupName"
+

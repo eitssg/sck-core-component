@@ -1,0 +1,142 @@
+Resource::AWS::S3::S3BucketRule:
+  AbortIncompleteMultipartUpload:
+    _Required: false
+    DaysAfterInitiation:
+      _Type: int
+      _IntMinValue: 1
+  ExpirationDate:
+    _Type: string
+    _Required: false
+    # TODO regex to date format
+  ExpirationInDays:
+    _Type: int
+    _Required: false
+    _IntMinValue: 1
+  NoncurrentVersionExpirationInDays:
+    _Type: int
+    _Required: false
+    _IntMinValue: 1
+  Prefix:
+    _Type: string
+    _Required: false
+  Status:
+    _Type: string
+    _Required: true
+    _StringEnum: [ Enabled, Disabled ]
+  Transitions:
+    _Type: list
+    _Required: false
+    _ListItemType: Resource::AWS::S3::S3BucketRule::Transitions
+
+
+AWS::S3::Bucket:
+  _Type: Component
+  Configuration:
+    Bucket:
+      Pipeline::Security:
+        _Type: Pipeline::IamSecurity
+        _Required: false
+        _ListItemSpec:
+          Allow:
+            _ListItemSpec:
+              _StringEnum: [ list, read, write, delete ]
+      Properties:
+        _Required: false
+        BucketName:
+          _Required: false
+          Fn::Pipeline::S3BucketName:
+            Scope:
+              _Type: string
+              _StringEnum: [ build, branch ]
+        LifecycleConfiguration:
+          _Required: false
+          Rules:
+            _Type: list
+            _ListItemType: Resource::AWS::S3::S3BucketRule
+        VersioningConfiguration:
+          _Required: false
+          Status:
+            _Type: string
+            _StringEnum: [ Enabled, Suspended ]
+        NotificationConfiguration:
+          _Required: false
+          LambdaConfigurations:
+            _Type: list
+            _ListItemType: Resource::AWS::S3::NotificationConfiguration::LambdaConfiguration
+        IntelligentTieringConfiguration:
+          _Required: false
+          _Type: list
+          _ListItemType: Resource::AWS::S3::IntelligentTieringConfiguration
+        persist_update:
+          _Required: false
+          status:
+            _Type: bollean
+          value:
+            _Type: string
+Resource::AWS::S3::S3BucketRule::Transitions:
+  TransitionInDays:
+    _Type: int
+    _Required: true
+  StorageClass:
+    _Type: string
+    _Required: true
+
+Resource::AWS::S3::NotificationConfiguration::LambdaConfiguration:
+  Event:
+    _Type: string
+    _Required: false
+  Filter:
+    _Type: Resource::AWS::S3::NotificationConfiguration::LambdaConfiguration::filter
+    _Required: false
+  Function:
+    _Type: string
+    _Required: true
+
+Resource::AWS::S3::NotificationConfiguration::LambdaConfiguration::filter:
+  S3KeyName:
+    _Type: string
+    _Required: true
+    _StringEnum: [ prefix, suffix ]
+  S3KeyValue:
+    _Type: string
+    _Required: true
+
+Resource::AWS::S3::IntelligentTieringConfiguration::filter:
+  Key:
+    _Type: string
+    _Required: true
+  Value:
+    _Type: string
+    _Required: true
+
+Resource::AWS::S3::IntelligentTieringConfiguration:
+  Id:
+    _Required: true
+    _Type: string
+  Prefix:
+    _Type: string
+    _Required: false
+  Status:
+    _Type: string
+    _Required: true
+    _StringEnum: [ Enabled, Disabled ]
+  TagFilters:
+    _Type: list
+    _ListItemType: Resource::AWS::S3::IntelligentTieringConfiguration::filter
+    _Required: false
+  Tierings:
+    _Type: list
+    _Required: true
+    _ListItemType: Resource::AWS::S3::IntelligentTieringConfiguration::Tiering
+
+
+Resource::AWS::S3::IntelligentTieringConfiguration::Tiering:
+  AccessTier:
+    _Type: string
+    _Required: true
+    _StringEnum: [ ARCHIVE_ACCESS, DEEP_ARCHIVE_ACCESS ]
+  Days:
+    _Type: int
+    _Required: true
+    _IntMinValue: 90
+    _IntMaxValue: 730

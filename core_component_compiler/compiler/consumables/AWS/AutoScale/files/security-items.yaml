@@ -1,0 +1,107 @@
+# CLB/ALB suppport.
+{% set config = app[component_name].Configuration %}
+{% set load_balancer = config.get('LoadBalancer', config.get('ApplicationLoadBalancer')) %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::AutoScale - {{ component_name }} - security items
+
+Resources:
+
+  LbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Load balancer security group
+      VpcId:
+        {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:VpcId"
+        {% else %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {% endif %}
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Instance security group
+      VpcId:
+        {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:VpcId"
+        {% else %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {% endif %}
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - autoscaling.amazonaws.com
+                - ec2.amazonaws.com
+        Version: "2012-10-17"
+      Path: "/"
+      {% if 'DefaultManagedPolicyArns' in context %}
+      ManagedPolicyArns:
+        # Default Managed policy ARNs
+        {{ context.DefaultManagedPolicyArns | to_yaml | indent(8) }}
+      {% endif %}
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - Ref: Role
+
+Outputs:
+  DefaultExport:
+    Value:
+      Ref: AWS::StackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DefaultExport"
+
+  InstanceProfileArn:
+    Value:
+      Fn::GetAtt: [ InstanceProfile, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:InstanceProfileArn"
+
+  InstanceProfileName:
+    Value:
+      Ref: InstanceProfile
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:InstanceProfileName"
+
+  RoleArn:
+    Value:
+      Fn::GetAtt: [ Role, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:RoleArn"
+
+  RoleName:
+    Value:
+      Ref: Role
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:RoleName"
+
+  SecurityGroupId:
+    Value:
+      Ref: SecurityGroup
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:SecurityGroupId"
+
+  LbSecurityGroupId:
+    Value:
+      Ref: LbSecurityGroup
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LbSecurityGroupId"

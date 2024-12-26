@@ -1,0 +1,20 @@
+AWS::S3::Storage:
+  _Type: Component
+
+  Configuration:
+    Storage:
+      Pipeline::Security:
+        _Type: Pipeline::IamSecurity
+        _Required: false
+        _ListItemSpec:
+          Allow:
+            _ListItemSpec:
+              _StringEnum: [ list, read, write, delete ]
+      Properties:
+        Scope:
+          _Type: string
+          _Required: false
+          _StringEnum: [ build, branch, app, portfolio, shared ]
+        Prefix:
+          _Type: string
+          _Required: false

@@ -1,0 +1,29 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::ACMPCA::CertificateAuthority - {{ component_name }} - pointers
+
+Parameters:
+  BaseStackName:
+    Type: String
+  ResourcesStackName:
+    Type: String
+
+Resources:
+  WaitConditionHandle:
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+Outputs:
+  DefaultExport:
+    Value:
+      Ref: AWS::StackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DefaultExport"
+
+  BaseStackName:
+    Value:
+      Ref: BaseStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BaseStackName"

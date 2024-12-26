@@ -1,0 +1,10 @@
+{% macro include_userdata(image_name, filename, metadata_resource, resource_to_signal = '') %}
+{% if resource_to_signal == '' %}{% set resource_to_signal = metadata_resource %}{% endif %}
+{% if 'amazon-linux' in image_name or 'rhel' in image_name or 'centos' in image_name %}
+{% include "AWS/LoadBalancedInstances/userdata/instance-linux.sh" %}
+{% elif 'win' in image_name %}
+{% include "AWS/LoadBalancedInstances/userdata/instance-windows.ps1" %}
+{% else %}
+{{ raise("Unknown image '" + image_name + "', cannot load userdata") }}
+{% endif %}
+{% endmacro %}

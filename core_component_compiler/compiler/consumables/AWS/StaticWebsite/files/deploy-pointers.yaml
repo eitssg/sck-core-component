@@ -1,0 +1,87 @@
+{% set deployment_dns_prefix = [ component_name, context.BranchShortName ~ "-deploy", context.App, context.Portfolio ] | join(".") %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::StaticWebsite - {{ component_name }} - pointers
+
+Parameters:
+  BaseStackName:
+    Type: String
+    Default: "none"
+
+  BucketStackName:
+    Type: String
+
+  CloudFrontStackName:
+    Type: String
+
+Resources:
+
+  # Default imports to lock downstream stacks
+  DefaultImport:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Metadata:
+      DefaultBucketImport:
+        Fn::ImportValue:
+          Fn::Sub: "${BucketStackName}:DefaultExport"
+      DefaultCloudFrontImport:
+        Fn::ImportValue:
+          Fn::Sub: "${CloudFrontStackName}:DefaultExport"
+
+Outputs:
+  Build:
+    Value: "{{ context.Build }}"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:Build"
+
+  BaseStackName:
+    Value:
+      Ref: BaseStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BaseStackName"
+
+  BucketStackName:
+    Value:
+      Ref: BucketStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BucketStackName"
+
+  CloudFrontStackName:
+    Value:
+      Ref: CloudFrontStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:CloudFrontStackName"
+
+  PointersStackName:
+    Value:
+      Ref: "AWS::StackName"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:PointersStackName"
+
+  DistributionDomainName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${CloudFrontStackName}:DistributionDomainName"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DistributionDomainName"
+
+  # PrivateDeploymentDns:
+  #   Value:
+  #     Fn::ImportValue:
+  #       Fn::Sub: "${CloudFrontStackName}:PrivateDeploymentDns"
+  #   Export:
+  #     Name:
+  #       Fn::Sub: "${AWS::StackName}:PrivateDeploymentDns"
+
+  PublicDeploymentDns:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${CloudFrontStackName}:PublicDeploymentDns"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:PublicDeploymentDns"

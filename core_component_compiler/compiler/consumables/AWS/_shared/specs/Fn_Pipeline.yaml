@@ -1,0 +1,44 @@
+Fn::Pipeline::ImageId:
+  Fn::Pipeline::ImageId:
+    Name:
+      _Type: string
+
+Fn::Pipeline::DockerImage:
+  Fn::Pipeline::DockerImage:
+    Name:
+      _Type: string
+
+Fn::Pipeline::SnapshotId:
+  Fn::Pipeline::SnapshotId:
+    Name:
+      _Type: string
+
+Fn::Pipeline::SubnetId:
+  Fn::Pipeline::SubnetId:
+    NetworkZone:
+      _Type: string
+      _StringEnum: [ public, private ]
+      _Required: false
+    AzIndex:
+      _Type: int
+      _IntMinValue: 0
+      _IntMaxValue: 2
+      _Required: false
+
+Fn::Pipeline::FileS3Key:
+  Fn::Pipeline::FileS3Key:
+    Path:
+      _Type: string
+
+Fn::Pipeline::GetOutput:
+  Fn::Pipeline::GetOutput:
+    Component:
+      _Type: string
+      _Required: true
+    OutputName:
+      _Type: string
+      _Required: true
+    Scope:
+      _Type: string
+      _StringEnum: [ build ]
+      _Required: false

@@ -1,0 +1,115 @@
+{% set MSK_Cluster_name = [ context.Portfolio, context.App, context.BranchShortName, context.Build, component_name ] | join("-") %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::MSK - {{ component_name }} - resources
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Resources:
+  {% set resource = app[component_name].Configuration %}
+  {% if resource.MSKCluster.Properties.ClusterType == 'provisioned' %}
+  {% if 'MSKClusterConfig' in resource %}
+  MSKClusterConfig:
+    Type: AWS::MSK::Configuration
+    Properties:
+      Name: {{ MSK_Cluster_name }}-ClusterConf
+      ServerProperties: |
+        {{ resource.MSKClusterConfig.Properties.ServerProperties | indent(10) }}
+  {% endif %}
+
+  MSKCluster:
+    Type: AWS::MSK::Cluster
+    Properties:
+      BrokerNodeGroupInfo:
+        ClientSubnets:
+              - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
+              - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}2Id"
+              {% if context.AzCount >= 3 %}
+              - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}3Id"
+              {% endif %}
+        SecurityGroups:
+          - Fn::ImportValue:
+              Fn::Sub: "${SecurityStackName}:MSKSecurityGroupId"
+        {% if 'VolumeSize' in resource.MSKCluster.Properties %}
+        StorageInfo:
+          EBSStorageInfo:
+            VolumeSize: {{ resource.MSKCluster.Properties.VolumeSize }}
+        {% endif %}
+        InstanceType: {{ resource.MSKCluster.Properties.InstanceType }}
+      ClusterName: {{ MSK_Cluster_name }}
+      {% if 'MSKClusterConfig' in resource %}
+      ConfigurationInfo:
+        #Arn: !Ref ClusterConfArn #hardcoded value if existing cluster is available
+        #use below Arn retreival if cluster configuration is also created along with cluster creation
+        Arn:
+          Fn::GetAtt: [ MSKClusterConfig, Arn ]
+        {% if 'ClusterConfRevision' in resource.MSKCluster.Properties %}
+        Revision: {{ resource.MSKCluster.Properties.ClusterConfRevision }}
+        {% endif %}
+      {% endif %}
+      {% if 'ClientAuthentication' in resource.MSKCluster.Properties and resource.MSKCluster.Properties.ClientAuthentication == 'Unauthenticated' %}
+      EncryptionInfo:
+        EncryptionInTransit:
+          ClientBroker: TLS_PLAINTEXT
+          InCluster: false
+      ClientAuthentication:
+        Unauthenticated:
+          Enabled: true
+      {% endif %}
+      {% if 'EnhancedMonitoring' in resource.MSKCluster %}
+      EnhancedMonitoring: {{ resource.MSKCluster.Properties.EnhancedMonitoring }}
+      {% endif %}
+      KafkaVersion: {{ resource.MSKCluster.Properties.KafkaVersion }}
+      NumberOfBrokerNodes: {{ resource.MSKCluster.Properties.NumberOfBrokerNodes }}
+  {% endif %}
+  {% if resource.MSKCluster.Properties.ClusterType == 'serverless' %}
+  MSKCluster:
+    Type: AWS::MSK::ServerlessCluster
+    Properties:
+      VpcConfigs:
+        - SubnetIds:
+            - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
+            - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}2Id"
+            {% if context.AzCount >= 3 %}
+            - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}3Id"
+            {% endif %}
+          SecurityGroups:
+            - Fn::ImportValue:
+               Fn::Sub: "${SecurityStackName}:MSKSecurityGroupId"
+      ClusterName: {{ MSK_Cluster_name }}
+      ClientAuthentication:
+        Sasl:
+          Iam:
+           Enabled: true
+  {% endif %}
+
+Outputs:
+  {% if resource.MSKCluster.Properties.ClusterType == 'provisioned' %}
+  {% if 'MSKClusterConfig' in resource %}
+  MSKClusterConfig:
+    Value:
+      Fn::GetAtt: [ MSKClusterConfig, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:MSKClusterConfig"
+  {% endif %}
+  {% endif %}
+  MSKClusterArn:
+    Value:
+      Fn::GetAtt: [ MSKCluster, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:MSKClusterArn"
+
+  MSKClusterName:
+    Value:
+      Ref: MSKCluster
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:MSKClusterName"

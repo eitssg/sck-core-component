@@ -1,0 +1,162 @@
+AWS::AutoScaleNoAlb:
+  _Type: Component
+
+  Configuration:
+    BakeInstance:
+      _KeyCardinality: 0-1
+      Pipeline::Security:
+        _Type: Pipeline::IpSecurity
+        _Required: false
+      CreationPolicy:
+        _Type: Common::CreationPolicy
+        _Required: false
+      Metadata:
+        _Type: Common::Metadata
+        _Required: false
+      Properties:
+        BlockDeviceMappings:
+          _Type: Resource::AWS::EC2::Instance::BlockDeviceMappings
+          _Required: false
+        ImageId:
+          _Type: Fn::Pipeline::ImageId
+        InstanceType:
+          _Type: string
+        KeyName:
+          _Required: false
+          _Type: string
+        AmiVersionSuffix:
+          _Required: false
+          _Type: string
+        Dynatrace:
+          _Type: boolean
+          _Required: false
+        DynatraceVersion:
+          _Type: string
+          _Required: false
+
+    AutoScalingGroup:
+      CreationPolicy:
+        _Type: Common::CreationPolicy
+        _Required: false
+      Pipeline::Security:
+        _Type: Pipeline::IpSecurity
+        _Required: false
+      Properties:
+        Cooldown:
+          _Type: int
+          _Required: false
+          _IntMinValue: 0
+          # TODO: find bounds
+        DesiredCapacity:
+          _Type: int
+          _Required: false
+          # TODO: validate value is >= min and <= max
+        HealthCheckGracePeriod:
+          _Type: int
+          _Required: false
+        MaxSize:
+          _Type: int
+          # TODO: validate value is >= min
+        MinSize:
+          _Type: int
+          _IntMinValue: 0
+          # TODO: validate value is <= max
+        LifecycleHookSpecificationList:
+          _Type: list
+          _ListItemSpec:
+            DefaultResult:
+              _Required: false
+              _Type: string
+            HeartbeatTimeout:
+              _Required: false
+              _Type: int
+            LifecycleHookName:
+              _Required: true
+              _Type: string
+            LifecycleTransition:
+              _Required: true
+              _Type: string
+            NotificationMetadata:
+              _Required: false
+              _Type: string
+            NotificationTargetARN:
+              _Required: false
+              _Type: string
+            RoleARN:
+              _Required: false
+              _Type: aws-string
+          _Required: false
+        MetricsCollection:
+          _Warning: This property is deprecated and will not be configurable in the future. Configuring this proprety has no effect. See documentation for more information.
+          _Type: list
+          _Required: false
+          _ListItemType: Resource::AWS::AutoScaling::MetricsCollection
+        Scheme:
+          _Type: string
+          _StringEnum: [ internal, internet-facing ]
+        TargetGroupArn:
+          _Type: string
+        LbSecurityGroupId:
+          _Type: string
+
+
+    LaunchConfiguration:
+      Metadata:
+        _Type: Common::Metadata
+        _Required: false
+      Properties:
+        BlockDeviceMappings:
+          _Type: Resource::AWS::EC2::Instance::BlockDeviceMappings
+          _Required: false
+        EbsOptimized:
+          _Type: boolean
+          _Required: false
+        ImageId:
+          _Type: Fn::Pipeline::ImageId
+          _Required: false
+          # TODO: Required and Configurable if no BakeInstance is specified
+          # _Required:
+          #   Spec::Not:
+          #     Spec::Property: [ '.^.^.BakeInstance' ]
+          # _Configurable:
+          #   Spec::Not:
+          #     Spec::Property: [ '.^.^.BakeInstance' ]
+        InstanceType:
+          _Type: string
+        KeyName:
+          _Type: string
+          _Required: false
+        MetadataOptions:
+          _Type: string
+          _Required: false
+        Dynatrace:
+          _Type: boolean
+          _Required: false
+        DynatraceVersion:
+          _Type: string
+          _Required: false
+
+
+    Alarm:
+      _KeyRegex: ".*Alarm"
+      _KeyCardinality: 0-30
+      _Type: Resource::AWS::CloudWatch::Alarm
+
+    LogGroup:
+      _Required: false
+      _Type: Resource::AWS::Logs::LogGroup
+
+    LogGroupMetricFilter:
+      _KeyRegex: ".*LogGroupMetricFilter"
+      _KeyCardinality: 0-20
+      _Type: Resource::AWS::Logs::MetricFilter
+
+    ScalingPolicy:
+      _KeyRegex: '.*ScalingPolicy'
+      _KeyCardinality: 0-20
+      _Type: Resource::AWS::AutoScaling::ScalingPolicy
+
+    ScheduledAction:
+      _KeyRegex: '.*ScheduledAction'
+      _KeyCardinality: 0-20
+      _Type: Resource::AWS::AutoScaling::ScheduledAction

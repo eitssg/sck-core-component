@@ -1,0 +1,34 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set status_details = { "Scope": "component", "Consumable": app[component_name].Type, "Environment": context.Environment } %}
+
+# (log groups) If persistence is false, create the log groups stack
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/log-groups"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/start"
+  Before:
+    - "{{ context.ComponentPrn }}:action/deploy/main/resources"
+  Condition: "('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.log_groups_stack_name }}"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/deploy-log-groups.yaml"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating log groups
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created log groups
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create log groups
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

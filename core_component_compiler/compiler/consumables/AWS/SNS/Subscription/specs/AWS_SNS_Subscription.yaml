@@ -1,0 +1,39 @@
+AWS::SNS::Subscription:
+  _Type: Component
+  Configuration:
+    Subscription:
+      Pipeline::Security:
+        _Type: Pipeline::IamSecurity
+        _Required: false
+        _ListItemSpec:
+          Allow:
+            _ListItemSpec:
+              _StringEnum: [ read, write, admin ]
+      Properties:
+              _Required: true
+              TopicArn:
+                _Required: true
+                _Type: string
+              Protocol:
+                _Required: true
+                _Type: string
+                _StringEnum: ['http','https','email','email-json','sms','sqs', 'lambda', 'firehose', 'application']
+              Endpoint:
+                _Required: false
+                _Type: string
+              RawMessageDelivery:
+                _Required: false
+                _Type: boolean
+              FilterPolicyScope:
+                _Required: false
+                _Type: string
+                _StringEnum: ['MessageAttributes','MessageBody']
+              SubscriptionRoleArn:
+                _Required: false
+                _Type: string
+              FilterPolicy:
+                _Required: false
+                _Type: json-string
+              DeliveryPolicyPolicy:
+                _Required: false
+                _Type: json-string

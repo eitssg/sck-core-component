@@ -1,0 +1,113 @@
+---
+AWS::RDS::Aurora::PostgreSQL:
+  _Type: Component
+  Configuration:
+
+    DbCluster:
+      Pipeline::Security:
+        _Type: Pipeline::IpSecurity
+        _Required: false
+      DeletionPolicy:
+        _Type: string
+        _Required: false
+        _StringEnum: [Snapshot, Delete]
+      Properties:
+        BackupRetentionPeriod:
+          _Type: int
+          _Required: false
+          _IntMinValue: 0
+          _IntMaxValue: 35
+        DatabaseName:
+          _Type: string
+          _Required: false
+          _StringLength: 1-64
+        EngineMode:
+          _Type: string
+          _Required: false
+          # TODO Add more allowed engine modes as we support them.
+          # _StringEnum: [provisioned, serverless, parallelquery, global, multimaster]
+          _StringEnum: [provisioned, serverless, parallelquery, global, multimaster, serverlessV2]
+        MultiAZ:
+          _Type: string
+          _Required: false
+        EngineVersion:
+          _Type: string
+          _Required: false
+        MasterUsername:
+          _Type: string
+          _StringLength: 1-16
+          _StringRegex: '[a-zA-Z0-9]+'
+        Port:
+          _Type: int
+          _Required: false
+          _IntMinValue: 1150
+          _IntMaxValue: 65535
+        PreferredBackupWindow:
+          _Type: string
+          _Required: false
+          _StringRegex: '[0-2][0-9]:[0-5][0-9]-[0-2][0-9]:[0-5][0-9]'
+        PreferredMaintenanceWindow:
+          _Type: string
+          _Required: false
+          _StringRegex: '(Mon|Tue|Wed|Thu|Fri|Sat|Sun):[0-2][0-9]:[0-5][0-9]-(Mon|Tue|Wed|Thu|Fri|Sat|Sun):[0-2][0-9]:[0-5][0-9]'
+        ScalingConfiguration:
+          _Type: AWS::RDS::DBCluster::ScalingConfiguration::Aurora
+          _Required:
+            Spec::Property: [EngineMode, serverless]
+        ServerlessV2ScalingConfiguration:
+          _Type: AWS::RDS::DBCluster::ScalingConfiguration::Aurora
+          _Required:
+            Spec::Property: [ EngineMode, serverlessV2 ]
+        SnapshotIdentifier:
+          _Type: Fn::Pipeline::SnapshotId
+          _Required: false
+
+    DbClusterParameterGroup:
+      _Required: true
+      _Type: AWS::RDS::DBClusterParameterGroup::Aurora
+
+    DbInstance:
+      _KeyRegex: ".*DbInstance"
+      _KeyCardinality: 0-16
+      DependsOn:
+        _Type: list
+        _ListItemType: string
+        _Required: false
+      Properties:
+        AllowMajorVersionUpgrade:
+          _Type: boolean
+          _Required: false
+        AutoMinorVersionUpgrade:
+          _Type: boolean
+          _Required: false
+        DBInstanceClass:
+          _Type: string
+          _StringRegex: 'db\..*'
+        DBParameterGroupName:
+          _Type: AWS::RDS::DBParameterGroup::Aurora
+          _Required: false
+        Engine:
+          _Type: string
+          _StringEnum: [aurora-postgresql]
+        EngineVersion:
+          _Type: string
+          _Required: false
+        MonitoringInterval:
+          _Type: int
+          _Required: false
+          _IntEnum: [0, 1, 5, 10, 15, 30, 60]
+        CACertificateIdentifier:
+          _Type: string
+          _Required: false
+        EnablePerformanceInsights:
+          _Type: boolean
+          _Required: false
+
+    DbInstanceParameterGroup:
+      _Required: false
+      _Type: AWS::RDS::DBParameterGroup::Aurora
+
+    LogGroups:
+      _Type: Resource::AWS::Logs::LogGroup
+      _KeyCardinality: 0+
+      _KeyEnum: [AuditLogGroup, ErrorLogGroup, GeneralLogGroup, SlowQueryLogGroup]

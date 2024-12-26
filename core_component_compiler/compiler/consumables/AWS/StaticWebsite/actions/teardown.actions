@@ -1,0 +1,313 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set status_details = { "Scope": "component", "Consumable": app[component_name].Type, "Environment": context.Environment } %}
+{% set bucket_stack_name = [ context.Portfolio, context.App, context.BranchShortName, component_name, "buckets" ] | join("-") %}
+{% set cloudfront_stack_name = [ context.Portfolio, context.App, context.BranchShortName, component_name, "cloudfront" ] | join("-") %}
+{% set loader_stack_name = [ context.Portfolio, context.App, context.BranchShortName, context.Build, component_name, "loader" ] | join("-") %}
+{% set cleaner_stack_name = [ context.Portfolio, context.App, context.BranchShortName, context.Build, component_name, "cleaner" ] | join("-") %}
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/teardown/start"
+  DependsOn:
+    - "{{ context.BuildPrn }}:action/pre-teardown/*"
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Component teardown started
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Retrieve details about the released build
+- Type: AWS::GetStackOutputs
+  Label: "{{ context.ComponentPrn }}:action/teardown/gather-facts/released-build"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/start"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.release_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Retrieving release details
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Retrieved release details
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to retrieve release details
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Retrieve details about the bucket
+- Type: AWS::GetStackOutputs
+  Label: "{{ context.ComponentPrn }}:action/teardown/gather-facts/buckets"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/start"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ bucket_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Retrieving S3 bucket details
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Retrieved S3 bucket details
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to retrieve S3 bucket details
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/teardown/gather-facts"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/gather-facts/*"
+
+# Delete the release stack if this is the currently released build
+- Type: AWS::DeleteStack
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/release-stack"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/gather-facts"
+  Condition: "('{{ context.ComponentPrn }}:var/teardown/gather-facts/released-build/Build' | lookup('none')) == '{{ context.Build }}'"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.release_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleting release pointers
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleted release pointers
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to delete release pointers
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Delete the bucket loader stack (in case it is still around)
+- Type: AWS::DeleteStack
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/delete-bucket-loader"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/gather-facts"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ loader_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleting bucket loader instance
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleted bucket loader instance
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to delete the bucket loader instance
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Delete pointers stack
+- Type: AWS::DeleteStack
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/pointers"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/release-stack"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.pointers_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleting deployment pointers
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleted deployment pointers
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to delete deployment pointers
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Delete CloudFront stack
+- Type: AWS::DeleteStack
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/cloudfront"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/pointers"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ cloudfront_stack_name }}"
+    SuccessStatuses: [ CREATE_COMPLETE, UPDATE_COMPLETE, UPDATE_ROLLBACK_COMPLETE ]
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleting the CloudFront distribution
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleted the CloudFront distribution
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to delete the CloudFront distribution
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Empty the file bucket
+- Type: AWS::EmptyBucket
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/empty-file-bucket"
+  Condition: "'{{ context.ComponentPrn }}:var/teardown/main/cloudfront/StackStatus' | lookup('') == 'DELETE_COMPLETE'"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/cloudfront"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    BucketName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/gather-facts/buckets/FileBucketName' | lookup('') {{ '}}' }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Emptying the files S3 bucket
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Emptied the files S3 bucket
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to empty the files S3 bucket
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Empty the log bucket
+- Type: AWS::EmptyBucket
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/empty-log-bucket"
+  Condition: "'{{ context.ComponentPrn }}:var/teardown/main/cloudfront/StackStatus' | lookup('') == 'DELETE_COMPLETE'"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/cloudfront"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    BucketName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/gather-facts/buckets/LogBucketName' | lookup('') {{ '}}' }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Emptying the logs S3 bucket
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Emptied the logs S3 bucket
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to empty the logs S3 bucket
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Delete Bucket stack
+- Type: AWS::DeleteStack
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/buckets"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/empty-file-bucket"
+    - "{{ context.ComponentPrn }}:action/teardown/main/empty-log-bucket"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ bucket_stack_name }}"
+    SuccessStatuses: [ CREATE_COMPLETE, UPDATE_COMPLETE, UPDATE_ROLLBACK_COMPLETE ]
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleting the S3 buckets
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleted the S3 buckets
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to delete the S3 buckets
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/teardown/main"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/*"
+
+# Delete the security items
+- Type: AWS::DeleteStack
+  Label: "{{ context.ComponentPrn }}:action/teardown/security-items"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.security_items_stack_name }}"
+    SuccessStatuses: [ CREATE_COMPLETE, UPDATE_COMPLETE, UPDATE_ROLLBACK_COMPLETE ]
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleting security items
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleted security items (if required)
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to clean up security items
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/teardown/success"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/security-items"
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: TEARDOWN_COMPLETE
+          Message: Component teardown successful
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

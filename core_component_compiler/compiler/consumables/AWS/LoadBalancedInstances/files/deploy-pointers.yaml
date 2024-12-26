@@ -1,0 +1,80 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::LoadBalancedInstances - {{ component_name }} - pointers
+
+Parameters:
+  BaseStackName:
+    Type: String
+
+  ResourcesStackName:
+    Type: String
+
+Resources:
+  # Private deployment DNS
+  PrivateDeploymentDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName:
+          Fn::ImportValue:
+            Fn::Sub: "${ResourcesStackName}:LoadBalancerDnsName"
+        EvaluateTargetHealth: false
+        HostedZoneId:
+          Fn::ImportValue:
+            Fn::Sub: "${ResourcesStackName}:LoadBalancerHostedZoneId"
+      HostedZoneId:
+        Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:HostedZoneId
+      Name:
+        Fn::Sub:
+          - "{{ names.deployment_dns_prefix }}.${RegionalHostedZoneName}"
+          - RegionalHostedZoneName:
+              Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:RegionalHostedZoneName
+      Type: A
+
+Outputs:
+  Build:
+    Value: "{{ context.Build }}"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:Build"
+
+  LoadBalancerName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:LoadBalancerName"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LoadBalancerName"
+
+  BaseStackName:
+    Value:
+      Ref: BaseStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BaseStackName"
+
+  PointersStackName:
+    Value:
+      Ref: "AWS::StackName"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:PointersStackName"
+
+  PrivateDeploymentDns:
+    Value:
+      Ref: PrivateDeploymentDnsRecord
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:PrivateDeploymentDns"
+
+  PrivateReleaseDns:
+    Value:
+      "none"
+
+  ResourcesStackName:
+    Value:
+      Ref: ResourcesStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:ResourcesStackName"

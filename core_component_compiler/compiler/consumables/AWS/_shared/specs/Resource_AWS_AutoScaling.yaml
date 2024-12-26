@@ -1,0 +1,81 @@
+Resource::AWS::AutoScaling::MetricsCollection:
+  Granularity:
+    _Type: string
+    _Required: true
+    _StringEnum: [ 1Minute ]
+  Metrics:
+    _Type: list
+    _Required: false
+    _ListItemSpec:
+      _Type: string
+      _StringEnum: [ GroupMinSize, GroupMaxSize, GroupDesiredCapacity, GroupInServiceInstances, GroupPendingInstances, GroupStandbyInstances, GroupTerminatingInstances, GroupTotalInstances ]
+
+Resource::AWS::AutoScaling::StepAdjustment:
+  MetricIntervalLowerBound:
+    _Type: float
+    _Required: false
+  MetricIntervalUpperBound:
+    _Type: float
+    _Required: false
+  ScalingAdjustment:
+    _Type: int
+    _Required: true
+
+Resource::AWS::AutoScaling::ScalingPolicy:
+  Properties:
+    AdjustmentType:
+      _Type: string
+      _Required: false
+      _StringEnum: [ ChangeInCapacity, ExactCapacity, PercentChangeInCapacity ]
+    Cooldown:
+      _Type: int
+      _Required: false
+      _Configurable:
+        Spec::Not:
+          Spec::Property: [ PolicyType, StepScaling ]
+    MetricAggregationType:
+      _Type: string
+      _Required: false
+      _StringEnum: [ Minimum, Maximum, Average ]
+    PolicyType:
+      _Type: string
+      _Required: false
+      _StringEnum: [ SimpleScaling, StepScaling ]
+    ScalingAdjustment:
+      _Type: int
+      # TODO: validate not less than zero/negative for ExactCapacity
+      _Required:
+        Spec::Or:
+          - Spec::Property: [ PolicyType, SimpleScaling ]
+          - Spec::Not:
+              Spec::Property: [ PolicyType ]
+      _Configurable:
+        Spec::Or:
+          - Spec::Property: [ PolicyType, SimpleScaling ]
+          - Spec::Not:
+              Spec::Property: [ PolicyType ]
+    StepAdjustments:
+      _Type: list
+      _ListItemType: Resource::AWS::AutoScaling::StepAdjustment
+      _Required:
+        Spec::Property: [ PolicyType, StepScaling ]
+      _Configurable:
+        Spec::Property: [ PolicyType, StepScaling ]
+
+Resource::AWS::AutoScaling::ScheduledAction:
+  Properties:
+    DesiredCapacity:
+      _Type: int
+      _Required: false
+      # TODO: validate must specify at least one of DesiredCapacity, MaxSize, MinSie
+    MaxSize:
+      _Type: int
+      _Required: false
+      # TODO: validate must specify at least one of DesiredCapacity, MaxSize, MinSie
+    MinSize:
+      _Type: int
+      _Required: false
+      # TODO: validate must specify at least one of DesiredCapacity, MaxSize, MinSie
+    Recurrence:
+      _Type: string
+      _StringRegex: '(\*|[0-9A-Z\-]+) (\*|[0-9A-Z\-]+) (\*|[0-9A-Z\-]+) (\*|[0-9A-Z\-]+) (\*|[0-9A-Z\-]+)'

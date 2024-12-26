@@ -1,0 +1,83 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set config = app[component_name].Configuration %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::VPCEndpoint - {{ component_name }} - resources
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Resources:
+
+  # Load balancer
+  {% set resource = app[component_name].Configuration %}
+  VPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      {% if resource.Properties.PrivateDnsEnabled | d(false) %}
+      PrivateDnsEnabled: false
+      {% endif %}
+      {% if resource.Properties.VpcId is defined %}
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:SecurityGroupId"
+      {% else %}
+      SecurityGroupIds:
+        - Fn::ImportValue: "core-network-{{ context.Environment }}:ProxyNatDnsVpc:VpcEndpointSecurityGroup"
+      {% endif %}
+      {% if 's3' in resource.Properties.ServiceName %}
+      ServiceName: com.amazonaws.{{ context.AwsRegion }}.s3
+      {% elif 'pinpoint' in resource.Properties.ServiceName %}
+      ServiceName: com.amazonaws.{{ context.AwsRegion }}.pinpoint
+      {% else %}
+      ServiceName: com.amazonaws.vpce.{{ context.AwsRegion }}.{{ resource.Properties.ServiceName }}
+      {% endif %}
+      {% if resource.Properties.VpcId is defined %}
+      SubnetIds: {{ resource.Properties.SubnetIds }}
+      {% else %}
+      SubnetIds:
+        - Fn::ImportValue: "core-network-{{ context.Environment }}:ProxyNatDnsVpc:ProxyExtSubnet1Id"
+        - Fn::ImportValue: "core-network-{{ context.Environment }}:ProxyNatDnsVpc:ProxyExtSubnet2Id"
+      {% if context.AzCount >= 3 %}
+        - Fn::ImportValue: "core-network-{{ context.Environment }}:ProxyNatDnsVpc:ProxyExtSubnet3Id"
+      {% endif %}
+      {% endif %}
+      VpcEndpointType: Interface
+      {% if resource.Properties.VpcId is defined %}
+      VpcId: {{ resource.Properties.VpcId | to_yaml }}
+      {% else %}
+      VpcId:
+        Fn::ImportValue: "core-network-{{ context.Environment }}:ProxyNatDnsVpc:VpcId"
+      {% endif %}
+
+  VpcEndPointRecord:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId:
+        Fn::ImportValue:
+          Fn::Sub: 'core-network-{{ context.Environment }}:HostedZoneId'
+      RecordSets:
+        {% if resource.Properties.Aliases is defined %}
+        {% for alias in resource.Properties.Aliases %}
+        - Name: {{ alias.Value }}
+          Type: CNAME
+          TTL: 60
+          ResourceRecords:
+            - !Select ['1', !Split [ ':', !Select ['0', !GetAtt "VPCEndpoint.DnsEntries"]]]
+        {% endfor %}
+        {% endif %}
+        - Name: !Sub
+          - '{{ component_name }}-vpce.pnd.{{ context.Environment }}.aws.sg.simplegroup.net'
+          - Domain:
+              Fn::ImportValue:
+                Fn::Sub: 'core-network-{{ context.Environment }}:HostedZoneName'
+          Type: A
+          AliasTarget:
+            DNSName: !Select ['1', !Split [ ':', !Select ['0', !GetAtt "VPCEndpoint.DnsEntries"]]]
+            HostedZoneId: !Select ['0', !Split [ ':', !Select ['0', !GetAtt "VPCEndpoint.DnsEntries"]]]
+

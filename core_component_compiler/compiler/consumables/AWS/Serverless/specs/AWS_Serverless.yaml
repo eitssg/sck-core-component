@@ -1,0 +1,138 @@
+AWS::Serverless:
+  _Type: Component
+
+  Persist:
+    _Configurable: false
+
+  Configuration:
+    Function:
+      Pipeline::Security:
+        _Type: Pipeline::IamSecurity
+        _Required: false
+        _ListItemSpec:
+          Allow:
+            _ListItemSpec:
+              _StringEnum: [invoke]
+      Properties:
+        Code:
+          S3Key:
+            _Required: false
+            _Type: Fn::Pipeline::FileS3Key
+          ZipFile:
+            _Required: false
+            _Type: string
+        Environment:
+          _Required: false
+          Variables:
+            Key:
+              _Type: aws-string
+              _KeyRegex: '[a-zA-Z]([a-zA-Z0-9_])+'
+              _KeyCardinality: 1+
+        Handler:
+          _Type: string
+          _Required: false
+          _StringLength: 1-128
+          _StringRegex: '[^\s]+'
+        MemorySize:
+          _Type: int
+          _IntMinValue: 128
+          _IntMaxValue: 3008
+          _IntMultipleOf: 64
+        ReservedConcurrentExecutions:
+          _Type: int
+          _Required: false
+        Runtime:
+          _Type: string
+        Timeout:
+          _Type: int
+          _IntMinValue: 1
+          _IntMaxValue: 900
+        VpcConfig:
+          _Required: false
+          Fn::Pipeline::LambdaVpcConfig:
+            VpcAccess:
+              _Type: boolean
+        Layers:
+          _Required: false
+          _Type: boolean
+        S3Key_Layer:
+          _Required: false
+          _Type: Fn::Pipeline::FileS3Key
+        ZipFile_Layer:
+          _Required: false
+          _Type: string
+        CompatibleRuntimes:
+          _Required: false
+          _Type: list
+          _ListItemType: string
+        ARN_Layers:
+          _Required: false
+          _Type: list
+          _ListItemType: string
+        FunctionName:
+          _Required: false
+          _Type: string
+
+
+    EventRules:
+      _KeyRegex: ".*EventRule"
+      _KeyCardinality: 0-5
+      Properties:
+        ScheduleExpression:
+          _Type: string
+          _StringRegex: 'cron\(.+\)'
+        Targets:
+          _Type: list
+          _ListLength: 0-1
+          _ListItemSpec:
+            Arn:
+              _Required: false
+              Fn::Pipeline::LambdaArn:
+                Scope:
+                  _Type: string
+                  _StringEnum: [build, release]
+            Input:
+              _Required: false
+              _Type: json-string
+            InputPath:
+              _Required: false
+              _Type: string
+            InputTransformer:
+              _Required: false
+              InputPathsMap:
+                Key:
+                  _Type: string
+                  _KeyRegex: '[a-zA-Z0-9_-]+'
+                  _KeyCardinality: 0-10
+                  _StringLength: 0-256
+              InputTemplate:
+                _Type: json-string
+                _StringLength: 1-8192
+
+    TopicSubscriptions:
+      _KeyRegex: ".*TopicSubscription"
+      _KeyCardinality: 0-10
+      Properties:
+        Endpoint:
+          _Required: false
+          Fn::Pipeline::LambdaArn:
+            Scope:
+              _Type: string
+              _StringEnum: [build, release]
+        TopicArn:
+          Fn::Pipeline::GetOutput:
+            Component:
+              _Type: string
+            OutputName:
+              _Type: string
+              _StringRegex: '[a-zA-Z]*Arn'
+              _StringLength: 0-50
+
+    LogGroup:
+      _Required: false
+      _Type: Resource::AWS::Logs::LogGroup
+
+    LogGroupMetricFilter:
+      _KeyRegex: ".*LogGroupMetricFilter"
+      _KeyCardinality: 0-20
+      _Type: Resource::AWS::Logs::MetricFilter

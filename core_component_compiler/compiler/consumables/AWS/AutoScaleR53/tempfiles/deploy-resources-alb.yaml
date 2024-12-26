@@ -1,0 +1,394 @@
+{% if 'ApplicationLoadBalancer' in app[component_name].Configuration %}
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% macro include_userdata(image_name, resource_to_signal = '') %}
+{% if resource_to_signal == '' %}{% set resource_to_signal = metadata_resource %}{% endif %}
+{% if 'amazon-linux' in image_name or 'rhel' in image_name or 'centos' in image_name %}
+{% include "AWS/AutoScaleR53/userdata/deploy-linux.sh" %}
+{% elif 'win' in image_name %}
+{% include "AWS/AutoScalerR53/userdata/deploy-windows.ps1" %}
+{% else %}
+{{ raise("Unknown image '" + image_name + "', cannot load userdata") }}
+{% endif %}
+{% endmacro %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::AutoScale - {{ component_name }} - resources
+
+Parameters:
+  ImageId:
+    Type: String
+    Default: "NO_BAKE_IMAGE"
+{% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('BakeInstance') %}
+  {{ resource_name }}ImageId:
+    Type: String
+    Default: "NO_BAKE_IMAGE"
+{% endfor %}
+  KmsKeyArn:
+    Type: String
+    Default: ""
+  SecurityStackName:
+    Type: String
+
+Resources:
+
+  {% if app[component_name].Configuration.DefaultTargetGroup is not defined %}
+  # Default Target Group
+  DefaultTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 443
+      Protocol: HTTPS
+      VpcId:
+        {% if (app[component_name].Configuration.ApplicationLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:VpcId"
+        {% else %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {% endif %}
+  {% endif %}
+
+  # Target Group
+  # See https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-elasticloadbalancingv2-targetgroup.html
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('TargetGroup') %}
+  {{ resource_name }}:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      {% if resource.Properties.HealthCheckProtocol is defined %}
+      HealthCheckProtocol: {{ resource.Properties.HealthCheckProtocol }}
+      {% endif %}
+      HealthCheckPath:  {{ resource.Properties.HealthCheckPath }}
+      {% if resource.Properties.HealthCheckPort is defined %}
+      HealthCheckPort: {{ resource.Properties.HealthCheckPort }}
+      {% endif %}
+      HealthyThresholdCount: {{ resource.Properties.HealthCheckTimeoutSeconds | d(3) }}
+      UnhealthyThresholdCount: {{ resource.Properties.UnhealthyThresholdCount | d(5) }}
+      HealthCheckTimeoutSeconds: {{ resource.Properties.HealthCheckTimeoutSeconds | d(3) }}
+      HealthCheckIntervalSeconds: {{ resource.Properties.HealthCheckIntervalSeconds | d(5) }}
+      {% if resource.Properties.Matcher is defined %}
+      Matcher:
+        HttpCode: {{ resource.Properties.Matcher.HttpCode | d('200') }}
+      {% endif %}
+      Port: {{ resource.Properties.Port }}
+      Protocol: {{ resource.Properties.Protocol }}
+      VpcId:
+        {% if (app[component_name].Configuration.ApplicationLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:VpcId"
+        {% else %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {% endif %}
+      {% if resource.Properties.TargetGroupAttributes is defined %}
+      TargetGroupAttributes:
+        {{ resource.Properties.TargetGroupAttributes | to_yaml | indent(8) }}
+      {% endif %}
+  {% endfor %}
+
+  # Application Load Balancer
+  {% set resource = app[component_name].Configuration.ApplicationLoadBalancer %}
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      {% if 'LoadBalancerAttributes' in resource.Properties %}
+      LoadBalancerAttributes:
+        {{ resource.Properties.LoadBalancerAttributes | to_yaml | indent(8) }}
+      {% endif %}
+      Scheme: {{ resource.Properties.Scheme | d('internal') }}
+      SecurityGroups:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:LbSecurityGroupId"
+        {% for rule in resource | ip_rules(source_types=['sg-attachment']) %}
+        - Fn::ImportValue: "{{ rule.Value }}"   # {{ rule.Description }}
+        {% endfor %}
+      Subnets:
+        {% if (app[component_name].Configuration.ApplicationLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['public'] }}1Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['public'] }}2Id"
+        {% if context.AzCount >= 3 %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['public'] }}3Id"
+        {% endif %}
+        {% else %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}2Id"
+        {% if context.AzCount >= 3 %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}3Id"
+        {% endif %}
+        {% endif %}
+
+  {% if (resource.Properties.HttpsRedirect == 'enabled') %}
+  # Redirect Listener
+  RedirectListener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      DefaultActions:
+        - RedirectConfig:
+            Port: 443
+            Protocol: "HTTPS"
+            StatusCode: HTTP_301
+          Type: "redirect"
+      LoadBalancerArn:
+        Ref: ApplicationLoadBalancer
+      Port: 80
+      Protocol: "HTTP"
+  {% endif %}
+
+  # Load Balancer Listeners
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('Listener') %}
+  {{ resource_name }}:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn:
+            Ref: DefaultTargetGroup
+      LoadBalancerArn:
+        Ref: ApplicationLoadBalancer
+      {% if resource.Properties.Certificates is defined %}
+      Certificates:
+        {{ resource.Properties.Certificates | to_yaml | indent(8) }}
+      {% endif %}
+      Port: {{ resource.Properties.Port }}
+      Protocol: {{ resource.Properties.Protocol }}
+  {% endfor %}
+
+  # Listener Rules
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('ListenerRule') %}
+  {{ resource_name }}:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Properties:
+      Actions:
+        {{ resource.Properties.Actions | to_yaml | indent(8) }}
+      Conditions:
+        {{ resource.Properties.Conditions | to_yaml | indent(8) }}
+      ListenerArn:
+        {{ resource.Properties.ListenerArn | to_yaml | indent(8) }}
+      Priority: {{ resource.Properties.Priority }}
+  {% endfor %}
+
+  # Autoscaling group
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('AutoScalingGroup') %}
+  {{ resource_name }}:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    CreationPolicy:
+      AutoScalingCreationPolicy:
+        MinSuccessfulInstancesPercent: {{ resource | extract('CreationPolicy.AutoScalingCreationPolicy.MinSuccessfulInstancesPercent', 100) | min_int(context.get('MinSuccessfulInstancesPercent', 100)) }}
+      ResourceSignal:
+        Count: {{ resource.Properties.DesiredCapacity | d(resource.Properties.MinSize) }}
+        Timeout: {{ resource | extract('CreationPolicy.ResourceSignal.Timeout', 'PT15M') }}
+    Properties:
+      Cooldown: {{ resource.Properties.Cooldown | d({'Ref': 'AWS::NoValue'}) }}
+      DesiredCapacity: {{ resource.Properties.DesiredCapacity | d({'Ref': 'AWS::NoValue'}) }}
+      HealthCheckGracePeriod: {{ resource.Properties.HealthCheckGracePeriod | d(300) }}
+      HealthCheckType: ELB
+      LaunchConfigurationName:
+        Ref: {{ resource_name }}LaunchConfiguration
+      MaxSize: {{ resource.Properties.MaxSize }}
+      MinSize: {{ resource.Properties.MinSize }}
+      {% if resource.Properties.LifecycleHookSpecificationList is defined %}
+      LifecycleHookSpecificationList:
+        {{ resource.Properties.LifecycleHookSpecificationList | to_yaml | indent(8) }}
+      {% endif %}
+      {% set tgsearch_string = resource_name + 'TargetGroup' %}
+      TargetGroupARNs:
+        {% for tg_resource_name, tg_resource in app[component_name].Configuration.items() if tg_resource_name.endswith(tgsearch_string) %}
+        - Ref: {{ tg_resource_name }}
+        {% endfor %}
+      VPCZoneIdentifier:
+        {% if (app[component_name].Configuration.ApplicationLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['app'] }}1Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['app'] }}2Id"
+        {% if context.AzCount >= 3 %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['app'] }}3Id"
+        {% endif %}
+        {% else %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}2Id"
+        {% if context.AzCount >= 3 %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}3Id"
+        {% endif %}
+        {% endif %}
+      MetricsCollection:
+        - Granularity: 1Minute
+
+  # Launch configuration
+  {% set lcname = resource_name + 'LaunchConfiguration' %}
+  {% set lcresource = app[component_name].Configuration[lcname] %}
+  {% set bakename = resource_name + 'BakeInstance' %}
+  {% if bakename in app[component_name].Configuration %}
+  {% set bake_resource = app[component_name].Configuration[bakename] %}
+  {% set image_alias = bake_resource.Properties.ImageId | image_name %}
+  {% else %}
+  {% set image_alias = bake_resource.Properties.ImageId | image_name %}
+  {% endif %}
+  {{ lcname }}:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          default:
+            - agents
+            {% if 'config' in lcresource | extract('Metadata."AWS::CloudFormation::Init"', {}) %}
+            - config
+            {% endif %}
+            {% if 'win' in image_alias %}
+            - finalise
+            {% endif %}
+        agents:
+          files:
+            {{ agent_files(lcresource, component_name, image_alias, context, 'nobake') | indent(12) }}
+          commands:
+            {{ agent_commands(lcresource, image_alias, context, 'nobake') | indent(12) }}
+          services:
+            {{ agent_services(lcresource, image_alias, context, 'nobake') | indent(12) }}
+        finalise:
+          commands:
+            00-signal-success:
+              command: !Sub 'cfn-signal.exe -e 0 --region ${AWS::Region} --stack ${AWS::StackId} --resource AutoScalingGroup'
+              waitAfterCompletion: '0'
+        {% if 'Metadata' in lcresource %}
+        {% if "AWS::CloudFormation::Init" in lcresource.Metadata %}
+        {{ lcresource | extract('Metadata."AWS::CloudFormation::Init"', {}) | process_cfn_init | to_yaml | indent(8) }}
+        {% endif %}
+        {% endif %}
+      AWS::CloudFormation::Authentication:
+        S3AccessAuth:
+          type: s3
+          roleName:
+            Fn::ImportValue:
+              Fn::Sub: "${SecurityStackName}:RoleName"
+          buckets:
+            - "{{ context.FilesBucketName }}"
+    Properties:
+      {% if 'BlockDeviceMappings' in lcresource.Properties %}
+      BlockDeviceMappings:
+        {{ lcresource.Properties.BlockDeviceMappings | ebs_encrypt | to_yaml | indent(8) }}
+      {% endif %}
+      EbsOptimized: {{ lcresource.Properties.EbsOptimized | d(false) }}
+      {% if bakename in app[component_name].Configuration %}
+      ImageId:
+        Ref: {{ resource_name }}BakeInstanceImageId
+      {% else %}
+      ImageId: "{{ lcresource.Properties.ImageId | image_id }}"
+      {% endif %}
+      IamInstanceProfile:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:InstanceProfileName"
+      InstanceMonitoring: true
+      InstanceType: {{ lcresource.Properties.InstanceType }}
+      KeyName: {{ lcresource.Properties.KeyName | default({ 'Ref': 'AWS::NoValue' }) }}
+      SecurityGroups:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:SecurityGroupId"
+        {% for rule in app[component_name].Configuration[resource_name] | ip_rules(source_types=['sg-attachment']) %}
+        - Fn::ImportValue: "{{ rule.Value }}"   # {{ rule.Description }}
+        {% endfor %}
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            {{ include_userdata(image_alias, resource_name) | indent(12) }}
+
+  # Log group metric filters
+  {% for lgmf_resource_name, lgmf_resource in app[component_name].Configuration.items() if lgmf_resource_name.endswith( resource_name + 'LogGroupMetricFilter') %}
+  {{ lgmf_resource_name }}:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      FilterPattern: {{ lgmf_resource.Properties.FilterPattern }}
+      LogGroupName: {{ names.log_group_name }}
+      MetricTransformations:
+      {% for transformation in lgmf_resource.Properties.MetricTransformations %}
+        - MetricValue: {{ transformation.MetricValue }}
+          {% if transformation.DefaultValue is defined %}
+          DefaultValue: {{ transformation.DefaultValue }}
+          {% endif %}
+          MetricName: {{ transformation.MetricName }}
+          MetricNamespace: {{ names.log_group_name }}
+      {% endfor %}
+  {% endfor %}
+
+  # Alarms
+  {% for alm_resource_name, alm_resource in app[component_name].Configuration.items() if alm_resource_name.endswith(resource_name + 'Alarm') %}
+  {% set namespace = names.log_group_name if alm_resource_name.endswith(resource_name + 'LogGroupMetricAlarm') else alm_resource.Properties.Namespace | d('AWS/EC2') %}
+  {{ alm_resource_name }}:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      {% if alm_resource.Properties.AlarmName is defined %}
+      AlarmName: "{{ alm_resource.Properties.AlarmName }}"
+      {% endif %}
+      {% if alm_resource.Properties.AlarmDescription is defined %}
+      AlarmDescription: "{{ alm_resource.Properties.AlarmDescription }}"
+      {% endif %}
+      ActionsEnabled: true
+      AlarmActions: {{ alm_resource.Properties.AlarmActions }}
+      ComparisonOperator: {{ alm_resource.Properties.ComparisonOperator }}
+      {% if alm_resource.Properties.Dimensions is defined %}
+      Dimensions:
+        {{ alm_resource.Properties.Dimensions | to_yaml | indent(8) }}
+      {% elif not alm_resource_name.endswith( resource_name + 'LogGroupMetricAlarm') %}
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value:
+            Ref: {{ resource_name }}
+      {% endif %}
+      EvaluationPeriods: {{ alm_esource.Properties.EvaluationPeriods | d(3) }}
+      MetricName: {{ alm_resource.Properties.MetricName | d('CPUUtilization') }}
+      Namespace: {{ namespace }}
+      Period: {{ alm_resource.Properties.Period | d(60, true) }}
+      Statistic: {{ alm_resource.Properties.Statistic | d('Average', true) }}
+      Threshold: {{ alm_resource.Properties.Threshold }}
+  {% endfor %}
+
+  # Scaling policies
+  {% for sp_resource_name, sp_resource in app[component_name].Configuration.items() if sp_resource_name.endswith(resource_name + 'ScalingPolicy') %}
+  {{ sp_resource_name }}:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName:
+        Ref: { resource_name }}
+      Cooldown: {{ sp_resource.Properties.Cooldown }}
+      {% if sp_resource.Properties.MetricAggregationType is defined %}
+      MetricAggregationType: {{ sp_resource.Properties.MetricAggregationType }}
+      {% endif %}
+      {% if sp_resource.Properties.PolicyType is defined %}
+      PolicyType: {{ sp_resource.Properties.PolicyType }}
+      {% endif %}
+      ScalingAdjustment: {{ sp_resource.Properties.ScalingAdjustment }}
+  {% endfor %}
+
+  # Scheduled actions
+  {% for sa_resource_name, sa_resource in app[component_name].Configuration.items() if sa_resource_name.endswith(resource_name + 'ScheduledAction') %}
+  {{ sa_resource_name }}:
+    Type: AWS::AutoScaling::ScheduledAction
+    Properties:
+      AutoScalingGroupName:
+        Ref: {{ resource_name }}
+      DesiredCapacity: {{ sa_resource.Properties.DesiredCapacity | default({ 'Ref': 'AWS::NoValue' }) }}
+      MaxSize: {{ sa_resource.Properties.MaxSize | default({ 'Ref': 'AWS::NoValue' }) }}
+      MinSize: {{ sa_resource.Properties.MinSize | default({ 'Ref': 'AWS::NoValue' }) }}
+      Recurrence: {{ sa_resource.Properties.Recurrence | default({ 'Ref': 'AWS::NoValue' }) }}
+  {% endfor %}
+  {% endfor %}
+
+Outputs:
+
+  LoadBalancerDnsName:
+    Value:
+      Fn::GetAtt: [ ApplicationLoadBalancer, DNSName ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LoadBalancerDnsName"
+
+  LoadBalancerHostedZoneId:
+    Value:
+      Fn::GetAtt: [ ApplicationLoadBalancer, CanonicalHostedZoneID ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LoadBalancerHostedZoneId"
+
+  LoadBalancerName:
+    Value:
+      Ref: ApplicationLoadBalancer
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LoadBalancerName"
+
+{% else %}
+# This application did not specify an ApplicationLoadBalancer.
+{% endif %}

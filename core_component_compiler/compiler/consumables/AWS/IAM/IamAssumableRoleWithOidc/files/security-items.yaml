@@ -1,0 +1,47 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::IAM::IamAssumableRoleWithOidc - {{ component_name }} - security items
+
+Resources:
+#iam role creation
+  {% set resource = app[component_name].Configuration.AppRole %}
+  # IAM Role
+  Role:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "{{ context.Portfolio }}-{{ context.App }}-{{ context.BranchShortName }}-{{ resource.Properties.role_postfix| d('role') }}" 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Federated: 
+                - Fn::Sub: "arn:aws:iam::${AWS::AccountId}:oidc-provider/{{ resource.Properties.ClusterOIDCURL }}"
+            Action: 
+              - "sts:AssumeRoleWithWebIdentity"
+            Condition:
+              StringEquals:
+                "{{ resource.Properties.ClusterOIDCURL }}:sub" : "{{ resource.Properties.serviceaccount_url }}"
+      Path: "/"
+
+Outputs:
+  DefaultExport:
+    Value:
+      Ref: AWS::StackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DefaultExport"
+
+  RoleArn:
+    Value:
+      Fn::GetAtt: [ Role, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:RoleArn"
+
+  RoleName:
+    Value:
+      Ref: Role
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:RoleName"

@@ -1,0 +1,60 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set status_details = { "Scope": "component", "Consumable": app[component_name].Type, "Environment": context.Environment } %}
+
+# (bake image) Delete bake stack (in case it is still around)
+- Type: AWS::DeleteStack
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/bake-stack"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/release-stack"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.bake_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleting bake instance
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleted bake instance
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to delete bake instance
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# (bake image) Delete the image
+- Type: AWS::DeleteImage
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/image"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/resources"
+  Condition: "'{{ context.ComponentPrn }}:var/teardown/main/resources/StackStatus' | lookup('') == 'DELETE_COMPLETE'"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    {% if app[component_name].Configuration.BakeInstance.Properties.AmiVersionSuffix is defined %}
+    {% set AmiVersionSuffix = app[component_name].Configuration.BakeInstance.Properties.AmiVersionSuffix %}
+    ImageName: "{{ names.image_name }}{{ AmiVersionSuffix }}"
+    {% else %}
+    ImageName: "{{ names.image_name }}"
+    {% endif %}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleting image
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleted image
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to delete image
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

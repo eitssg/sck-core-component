@@ -1,0 +1,246 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::IAM::IamAssumableRoleWithOidc - {{ component_name }} - resources
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Resources:
+  #iam policy creation
+  {% if context.BranchShortName == 'dev' and app[component_name].Configuration.DevelopmentEnvRolePolicies is defined %}
+  DevelopmentEnvRolePolicies:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "{{ context.Portfolio }}-{{ context.App }}-{{ context.BranchShortName }}-{{ context.Build }}-freeform"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          {% for statement in app[component_name].Configuration.DevelopmentEnvRolePolicies  %}
+          - {{ statement | policy_statements | to_yaml | indent(12) }}
+          {% endfor %}
+      Roles:
+        - Fn::ImportValue:
+            Fn::Sub: ${SecurityStackName}:RoleName
+  {% endif %}
+
+  DefaultRolePolicies:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "{{ context.Portfolio }}-{{ context.App }}-{{ context.BranchShortName }}-{{ context.Build }}-default"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Deny"
+            Action:
+              - 'secret:DeleteSecret' # write explicit deny
+            Resource:
+              - '*'
+          - Effect: "Allow"
+            Action:
+              - 'sns:Subscribe'
+              - 'sns:SetTopicAttributes'
+              - 'sns:RemovePermission'
+              - 'sns:ListSubscriptionsByTopic'
+              - 'sns:GetTopicAttributes'
+              - 'sns:DeleteTopic'
+              - 'sns:AddPermission'
+              - 'sns:Publish'
+              - 'sns:SetSMSAttributes'
+              - 'sns:GetSMSAttributes'
+            Resource:
+              - "arn:aws:sns:{{ context.AwsRegion }}:{{ context.AwsAccountId }}:{{ names.base_resource_name_hyphenated }}-*"
+          - Effect: "Allow"
+            Action:
+              - 'sqs:DeleteMessage'
+              - 'sqs:GetQueueUrl'
+              - 'sqs:ChangeMessageVisibility'
+              - 'sqs:SendMessageBatch'
+              - 'sqs:UntagQueue'
+              - 'sqs:ReceiveMessage'
+              - 'sqs:SendMessage'
+              - 'sqs:GetQueueAttributes'
+              - 'sqs:ListQueueTags'
+              - 'sqs:TagQueue'
+              - 'sqs:DeleteQueue'
+              - 'sqs:CreateQueue'
+              - 'sqs:ListDeadLetterSourceQueues'
+              - 'sqs:DeleteMessageBatch'
+              - 'sqs:ChangeMessageVisibilityBatch'
+              - 'sqs:SetQueueAttributes'
+              - 'sqs:ListQueues'
+            Resource:
+              - "arn:aws:sqs:{{ context.AwsRegion }}:{{ context.AwsAccountId }}:{{ names.base_resource_name_hyphenated }}-*"
+          - Effect: "Allow"
+            Action:
+              - 'secretsmanager:GetResourcePolicy'
+              - 'secretsmanager:GetSecretValue'
+              - 'secretsmanager:DescribeSecret'
+              - 'secretsmanager:ListSecretVersionIds'
+              - 'secretsmanager:ListSecrets'
+            Resource:
+              - "arn:aws:secretsmanager:{{ context.AwsRegion }}:{{ context.AwsAccountId }}:{{ names.base_resource_name_hyphenated }}-*"
+          - Effect: "Allow"
+            Action:
+              - 'ssm:GetParameter'
+              - 'ssm:GetParameters'
+              - 'ssm:GetParametersByPath'
+            Resource:
+              - "arn:aws:ssm:{{ context.AwsRegion }}:{{ context.AwsAccountId }}:{{ names.base_resource_name_hyphenated }}-*"
+          - Effect: "Allow"
+            Action:
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+            Resource:
+              - Ref: KmsKeyArn
+          - Effect: "Allow"
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+              - 's3:DeleteObject'
+              - 's3:ListBucket'
+            Resource:
+              - "arn:aws:s3:::{{ names.base_resource_name_hyphenated }}-*"
+          - Effect: "Allow"
+            Action:
+              - 'dynamodb:GetItem'
+              - 'dynamodb:Query'
+              - 'dynamodb:UpdateItem'
+              - 'dynamodb:PutItem'
+              - 'dynamodb:DeleteItem'
+              - 'dynamodb:Scan'
+            Resource:
+              - "arn:aws:dynamodb:{{ context.AwsRegion }}:{{ context.AwsAccountId }}:table/{{ names.base_resource_name_hyphenated }}-*"
+          - Effect: "Allow"
+            Action:
+              - 'SES:SendEmail'
+              - 'SES:SendRawEmail'
+            Resource:
+              - "arn:aws:ses:{{ context.AwsRegion }}:{{ context.AwsAccountId }}:identity/{{ names.base_resource_name_hyphenated }}-*"
+      Roles:
+        - Fn::ImportValue:
+            Fn::Sub: ${SecurityStackName}:RoleName
+
+  {% if app[component_name].Configuration.AppRolePolicies is defined %}
+    {% set resource = app[component_name].Configuration.AppRolePolicies %}
+  AppRolePolicies:
+    Type: "AWS::IAM::Policy"
+    Properties: 
+      PolicyName: "{{ context.Portfolio }}-{{ context.App }}-{{ context.BranchShortName }}-{{ context.Build }}-{{ resource.Properties.policy_postfix| d('policy') }}"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+        {% if resource.Properties.sns_arn_list is defined %}
+          - Effect: "Allow"
+            Action:
+              - 'sns:Subscribe'
+              - 'sns:SetTopicAttributes'
+              - 'sns:RemovePermission'
+              - 'sns:ListSubscriptionsByTopic'
+              - 'sns:GetTopicAttributes'
+              - 'sns:DeleteTopic'
+              - 'sns:AddPermission'
+              - 'sns:Publish'
+              - 'sns:SetSMSAttributes'
+              - 'sns:GetSMSAttributes'
+            Resource:
+              {{ resource.Properties.sns_arn_list | to_yaml | indent(14) }}
+        {% endif %}
+        {% if resource.Properties.sqs_arn_list is defined %}
+          - Effect: "Allow"
+            Action: 
+              - 'sqs:DeleteMessage'
+              - 'sqs:GetQueueUrl'
+              - 'sqs:ChangeMessageVisibility'
+              - 'sqs:SendMessageBatch'
+              - 'sqs:UntagQueue'
+              - 'sqs:ReceiveMessage'
+              - 'sqs:SendMessage'
+              - 'sqs:GetQueueAttributes'
+              - 'sqs:ListQueueTags'
+              - 'sqs:TagQueue'
+              - 'sqs:DeleteQueue'
+              - 'sqs:CreateQueue'
+              - 'sqs:ListDeadLetterSourceQueues'
+              - 'sqs:DeleteMessageBatch'
+              - 'sqs:ChangeMessageVisibilityBatch'
+              - 'sqs:SetQueueAttributes'
+            Resource:
+              {{ resource.Properties.sqs_arn_list | to_yaml | indent(14)  }}
+        {% endif %}
+        {% if resource.Properties.secretmanager_arn_list is defined %}
+          - Effect: "Allow"
+            Action:
+              - 'secretsmanager:GetResourcePolicy'
+              - 'secretsmanager:GetSecretValue'
+              - 'secretsmanager:DescribeSecret'
+              - 'secretsmanager:ListSecretVersionIds'
+              - 'secretsmanager:ListSecrets'
+            Resource:
+              {{ resource.Properties.secretmanager_arn_list | to_yaml | indent(14)  }}
+        {% endif %}
+        {% if resource.Properties.paramstore_arn_list is defined %}
+          - Effect: "Allow"
+            Action:
+              - 'ssm:GetParameter'
+              - 'ssm:GetParameters'
+              - 'ssm:GetParametersByPath'
+            Resource:
+              {{ resource.Properties.paramstore_arn_list | to_yaml | indent(14)  }}
+        {% endif %}
+        {% if resource.Properties.kms_arn_list is defined %}
+          - Effect: "Allow"
+            Action:
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+            Resource:
+              {{ resource.Properties.kms_arn_list | to_yaml | indent(14)  }}
+        {% endif %}
+        {% if resource.Properties.s3_arn_list is defined %}
+          - Effect: "Allow"
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+              - 's3:DeleteObject'
+              - 's3:ListBucket'
+            Resource:
+              {{ resource.Properties.s3_arn_list | to_yaml | indent(14) }}
+        {% endif %}
+        {% if resource.Properties.dynamodb_arn_list is defined %}
+          - Effect: "Allow"
+            Action:
+              - 'dynamodb:GetItem'
+              - 'dynamodb:Query'
+              - 'dynamodb:UpdateItem'
+              - 'dynamodb:PutItem'
+              - 'dynamodb:DeleteItem'
+              - 'dynamodb:Scan'
+            Resource:
+              {{ resource.Properties.dynamodb_arn_list | to_yaml | indent(14) }}
+        {% endif %}
+        {% if resource.Properties.ses_arn_list is defined %}
+          - Effect: "Allow"
+            Action:
+              - 'SES:SendEmail'
+              - 'SES:SendRawEmail'
+            Resource:
+              {{ resource.Properties.ses_arn_list | to_yaml | indent(14)  }}
+        {% endif %}
+          - Effect: "Allow"
+            Action:
+              - 'sqs:ChangeMessageVisibility'
+              - 'sqs:GetQueueAttributes'
+              - 'sqs:GetQueueUrl'
+              - 'sqs:ListQueues'
+              - 'sns:SetSMSAttributes'
+              - 'sns:GetSMSAttributes'
+            Resource:
+              "*"
+      Roles:
+        - Fn::ImportValue:
+            Fn::Sub: ${SecurityStackName}:RoleName
+  {% endif %}

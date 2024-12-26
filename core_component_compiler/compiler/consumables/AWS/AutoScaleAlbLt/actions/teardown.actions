@@ -1,0 +1,43 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set status_details = { "Scope": "component", "Consumable": app[component_name].Type, "Environment": context.Environment } %}
+
+{% include "AWS/_shared/actions/teardown-persist.actions" %}
+{% include "AWS/_shared/actions/addons/teardown-log-groups.actions" %}
+{% include "AWS/_shared/actions/addons/teardown-bake-image.actions" %}
+
+{% if 'ApplicationLoadBalancer' in app[component_name].Configuration %}
+- Type: AWS::GetStackOutputs
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/components/gather-facts/resources"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/components/start"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.resources_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Retrieving resources details
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Retrieved resources details
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to retrieve resources details
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+- Type: AWS::UnprotectELB
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/components/remove-protection"
+  Params:
+      Account: "{{ context.AwsAccountId }}"
+      Region: "{{ context.AwsRegion }}"
+      LoadBalancer: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/main/components/gather-facts/resources/LoadBalancerName' | lookup('none') {{ '}}' }}"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/components/gather-facts/resources"
+
+{% endif %}

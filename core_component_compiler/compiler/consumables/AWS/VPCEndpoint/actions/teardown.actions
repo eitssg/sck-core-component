@@ -1,0 +1,204 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set status_details = { "Scope": "component", "Consumable": app[component_name].Type, "Environment": context.Environment } %}
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/teardown/start"
+  DependsOn:
+    - "{{ context.BuildPrn }}:action/pre-teardown/*"
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Component teardown started
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Retrieve details about the released build
+- Type: AWS::GetStackOutputs
+  Label: "{{ context.ComponentPrn }}:action/teardown/gather-facts/released-build"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/start"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.release_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Retrieving release details
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Retrieved release details
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to retrieve release details
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Retrieve details about the deployment (so we know which persisted stack to delete)
+- Type: AWS::GetStackOutputs
+  Label: "{{ context.ComponentPrn }}:action/teardown/gather-facts/pointers"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/start"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.pointers_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Retrieving deployment details
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Retrieved deployment details
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to retrieve deployment details
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/teardown/gather-facts"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/gather-facts/*"
+
+# Delete the release pointers stack if this is the currently released build
+- Type: AWS::DeleteStack
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/release-stack"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/gather-facts"
+  Condition: "('{{ context.ComponentPrn }}:var/teardown/gather-facts/released-build/Build' | lookup('none')) == '{{ context.Build }}'"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.release_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleting release pointers
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleted release pointers
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to delete release pointers
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Delete the security rules
+- Type: AWS::DeleteStack
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/security-rules"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/release-stack"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.security_rules_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleting security rules
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleted security rules
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to delete security rules
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Delete resources stack (may fail if persisted and in use by other build)
+- Type: AWS::DeleteStack
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/resources"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/gather-facts"
+    - "{{ context.ComponentPrn }}:action/teardown/main/release-stack"
+    - "{{ context.ComponentPrn }}:action/teardown/main/security-rules"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/gather-facts/pointers/ResourcesStackName' | lookup('{{ names.resources_stack_name }}') {{ '}}' }}"
+    SuccessStatuses: [ CREATE_COMPLETE, UPDATE_COMPLETE, UPDATE_ROLLBACK_COMPLETE ]
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleting resources
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleted resources
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to delete resources
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/teardown/main"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/*"
+
+# Delete the security items
+- Type: AWS::DeleteStack
+  Label: "{{ context.ComponentPrn }}:action/teardown/security-items"
+  DependsOn:
+    - "{{ context.BuildPrn }}:*:action/teardown/main/security-rules"
+    - "{{ context.ComponentPrn }}:action/teardown/main"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.security_items_stack_name }}"
+    SuccessStatuses: [ CREATE_COMPLETE, UPDATE_COMPLETE, UPDATE_ROLLBACK_COMPLETE ]
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleting security items if required
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleted security items
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to delete security items
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/teardown/success"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/security-items"
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: TEARDOWN_COMPLETE
+          Message: Component teardown successful
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

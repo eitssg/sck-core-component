@@ -1,0 +1,331 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set status_details = { "Scope": "component", "Consumable": app[component_name].Type, "Environment": context.Environment } %}
+
+# TODO Compare with AWS\_shared\actions\addons\deploy-bake-image.actions
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/deploy/start"
+  DependsOn: []
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Component deploy started
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# == Stage: gather-facts - set persist variable ==
+- Type: System::SetVariables
+  Label: "{{ context.ComponentPrn }}:action/deploy/gather-facts/persistence"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/start"
+  Params:
+    Variables:
+      # If persist is true and there is a released stack - persist the released build, else do not persist the build
+      Persist: "{{ '{{' }} ('{{ context.ComponentPrn }}:var/deploy/gather-facts/release/ResourcesStackName' | lookup('')) != '' {{ '}}' }}"
+
+# == Stage: security-items ==
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/security-items"
+  DependsOn:
+    - "{{ context.BuildPrn }}:*:action/deploy/gather-facts"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.security_items_stack_name }}"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/security-items.yaml"
+    Tags:
+      {{ 'branch' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating security items
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created security items
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create security items
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# == Stage: deploy ==
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/start"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/security-items"
+    # User-specified component dependencies
+    {% for dependency in (app[component_name].DependsOn | ensure_list) %}
+    - "{{ context.BuildPrn }}:{{ dependency }}:action/deploy/main"
+    {% endfor %}
+
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/base-security-rules"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/start"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.security_rules_stack_name }}"
+    StackParameters:
+      KmsKeyArn: "{{ '{{' }} '{{ context.BuildPrn }}:output/KmsKeyArn' | lookup('') {{ '}}' }}"
+      SecurityStackName: "{{ names.security_items_stack_name }}"
+      # Stage: "base"
+      Stage: "bake"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/security-rules.yaml"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating base security rules
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created base security rules
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create base security rules
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Upload context to S3
+- Type: AWS::UploadContext
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/upload-context"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/start"
+  Params:
+    Bucket: "{{ context.FilesBucketName }}"
+    Region: "{{ context.FilesBucketRegion }}"
+    Prefix: "{{ context.BuildFilesPrefix }}/{{ component_name }}/context"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Uploading context variables
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Uploaded context variables
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to upload context variables
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# (log groups) If persistence is false, create the log groups stack
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/log-groups"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/start"
+  Before:
+    - "{{ context.ComponentPrn }}:action/deploy/main/resources"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.log_groups_stack_name }}"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/deploy-log-groups.yaml"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating log groups
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created log groups
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create log groups
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Create the bake stack
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/resources"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/base-security-rules"
+    - "{{ context.ComponentPrn }}:action/deploy/main/upload-context"
+    - "{{ context.ComponentPrn }}:action/deploy/main/log-groups"
+  Condition: "{{ 'BakeInstance' in app[component_name].Configuration }}"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.bake_stack_name }}"
+    StackParameters:
+      KmsKeyArn: "{{ '{{' }} '{{ context.BuildPrn }}:output/KmsKeyArn' | lookup('') {{ '}}' }}"
+      SecurityStackName: "{{ names.security_items_stack_name }}"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/bake.yaml"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating bake instance
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created bake instance
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create bake instance
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Bake the image
+- Type: AWS::CreateImage
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/bake-image"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/resources"
+  Condition: "{{ 'BakeInstance' in app[component_name].Configuration }}"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    ImageName: "{{ names.image_name }}"
+    InstanceId: "{{ '{{' }} '{{ context.ComponentPrn }}:var/deploy/main/resources/InstanceId' | lookup {{ '}}' }}"
+    Region: "{{ context.AwsRegion }}"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating image
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created image
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create image
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Create the encrypted image from unencrypted image
+- Type: AWS::CopyImage
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/bake-encrypted-image"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/bake-image"
+  Condition: "{{ 'BakeInstance' in app[component_name].Configuration }}"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    DestinationImageName: "{{ names.image_name }}-encrypted"
+    ImageName: "{{ names.image_name }}"
+    KmsKeyArn: {{ context.SoeKmsArn }}
+    Region: "{{ context.AwsRegion }}"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating encrypted image
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created encrypted image
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create encrypted image
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Delete the uncrypted image
+- Type: AWS::DeleteImage
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/delete-unencrypted-image"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/bake-encrypted-image"
+  Condition: "{{ 'BakeInstance' in app[component_name].Configuration }}"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    ImageName: "{{ names.image_name }}"
+    Region: "{{ context.AwsRegion }}"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Deleting unencrypted image
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Deleted unencrypted image
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to delete unencrypted image
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Delete the bake stack
+- Type: AWS::DeleteStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/delete-resources"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/bake-image"
+  Condition: "{{ 'BakeInstance' in app[component_name].Configuration }}"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.bake_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Deleting baked stack
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Deleted baked stack
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to delete baked stack
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Collect all deploy actions under single action name
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/deploy/main"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/*"
+
+# Put component deploy success event
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/deploy/success"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main"
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: DEPLOY_COMPLETE
+          Message: "Component deploy successful"
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

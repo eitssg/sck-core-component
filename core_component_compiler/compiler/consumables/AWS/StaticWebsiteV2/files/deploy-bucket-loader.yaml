@@ -1,0 +1,159 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% macro include_userdata(image_name) %}
+{% if 'amazon-linux' in image_name or 'rhel' in image_name %}
+{% include "AWS/Instance/userdata/instance-linux.sh" %}
+{% else %}
+{{ raise("Unknown image '" + image_name + "', cannot load userdata") }}
+{% endif %}
+{% endmacro %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::StaticWebsite - {{ component_name }} - bucket loader
+
+Parameters:
+  BucketStackName:
+    Type: String
+
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Resources:
+
+  {% set image_alias = context.StaticWebsiteImageAlias %}
+  Instance:
+    DependsOn:
+      - RoleBasePolicy
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          default:
+            - pre
+            - config
+        pre:
+          commands:
+            00-init:
+              command: echo "Performing pre config"
+            {% if 'rhel-7' in image_alias %}
+            01-enable-rhel7-repos:
+              command: "yum-config-manager --enable rhui-REGION-rhel-server-extras && yum-config-manager --enable rhui-REGION-rhel-server-releases && yum clean all"
+            {% endif %}
+        config:
+          sources:
+            /opt/website: "{{ context.FilesBucketUrl }}/{{ context.BuildFilesPrefix }}/{{ component_name }}.tar.gz"
+          commands:
+            01-upload:
+              command:
+                Fn::Sub:
+                  - "aws s3 cp --region {{ context.AwsRegion }} --acl bucket-owner-full-control --recursive /opt/website/ s3://${BucketName}/"
+                  - BucketName:
+                      Fn::ImportValue:
+                        Fn::Sub: "${BucketStackName}:FileBucketName"
+      AWS::CloudFormation::Authentication:
+        S3AccessAuth:
+          type: s3
+          roleName:
+            Fn::ImportValue:
+              Fn::Sub: "${SecurityStackName}:RoleName"
+          buckets:
+            - "{{ context.FilesBucketName }}"
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT15M
+    Properties:
+      IamInstanceProfile:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:InstanceProfileName"
+      ImageId: "{{ image_alias | image_alias_to_id }}"
+      InstanceInitiatedShutdownBehavior: stop
+      InstanceType: t3.large
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:SecurityGroupId"
+      SubnetId:
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}3Id"
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            {{ include_userdata(image_alias) | indent(12) }}
+
+  # Default instance role policy
+  RoleBasePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: base-{{ context.Build }}
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Allow instances to put metrics into CloudWatch
+          - Effect: Allow
+            Action:
+              - cloudwatch:PutMetricData
+            Resource:
+              - "*"
+
+          # Allow instances to describe resources
+          - Effect: Allow
+            Action:
+              - ec2:Describe*
+            Resource:
+              - "*"
+
+          # Allow Ansible aws_s3 module to perform HEAD Operation at the bucket level
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+            Resource:
+              - "arn:aws:s3:::{{ context.FilesBucketName }}"
+
+          # Allow instances to retrieve files
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource:
+              - "arn:aws:s3:::{{ context.FilesBucketName }}/{{ context.SharedFilesPrefix }}/*"
+              - "arn:aws:s3:::{{ context.FilesBucketName }}/{{ context.BuildFilesPrefix }}/*"
+
+          # Allow instances to write to CloudWatch Logs
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:DescribeLogStreams
+            Resource:
+              - Fn::Sub: "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:{{ names.log_group_name }}"
+              - Fn::Sub: "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:{{ names.log_group_name }}:*"
+
+          # Allow instances to write website files
+          - Effect: Allow
+            Action:
+              - s3:List*
+              - s3:PutObject*
+              - s3:GetObject*
+            Resource:
+              - Fn::Sub:
+                  - "${BucketArn}/*"
+                  - BucketArn:
+                      Fn::ImportValue:
+                        Fn::Sub: "${BucketStackName}:FileBucketArn"
+              - Fn::Sub:
+                  - "${BucketArn}"
+                  - BucketArn:
+                      Fn::ImportValue:
+                        Fn::Sub: "${BucketStackName}:FileBucketArn"
+
+          {% if 'DefaultIamPolicyStatements' in context %}
+          # Default IAM policy statements
+          {{ context.DefaultIamPolicyStatements | to_yaml | indent(10) }}
+          {% endif %}
+
+      Roles:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:RoleName"

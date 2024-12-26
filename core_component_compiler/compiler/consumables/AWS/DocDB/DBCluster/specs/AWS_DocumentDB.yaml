@@ -1,0 +1,137 @@
+---
+AWS::DocDB::DBClusterParameterGroup:
+  Properties:
+    Description:
+      _Type: string
+    Family:
+      _Type: string
+      _StringRegex: 'do(.+)'
+    Parameters:
+      _Required: false
+      Parameter:
+        _KeyRegex: '.*'
+        _KeyCardinality: 0+
+        _Type: scalar
+
+AWS::DocDB::DBParameterGroup:
+  Properties:
+    Description:
+      _Type: string
+    Family:
+      _Type: string
+    Parameters:
+      Parameter:
+        _KeyRegex: '.*'
+        _KeyCardinality: 1+
+        _Type: scalar
+
+AWS::DocDB::DBCluster:
+  _Type: Component
+  Configuration:
+
+    DBCluster:
+      Pipeline::Security:
+        _Type: Pipeline::IpSecurity
+        _Required: false
+        #      DeletionProtection:
+        #_Type: boolean
+        #_Required: false
+      Properties:
+        BackupRetentionPeriod:
+          _Type: int
+          _Required: false
+          _IntMinValue: 0
+          _IntMaxValue: 35
+        EngineVersion:
+          _Type: string
+          _Required: false
+        MasterUsername:
+          _Type: string
+          _StringLength: 1-16
+          _StringRegex: '[a-zA-Z0-9]+'
+        DBClusterIdentifier:
+          _Type: string
+          _StringLength: 1-32
+          _StringRegex: '[a-zA-Z0-9-]+'
+        DatabaseName:
+          _Type: string
+          _StringLength: 1-16
+          _StringRegex: '[a-zA-Z0-9]+'
+        Port:
+          _Type: int
+          _Required: false
+          _IntMinValue: 1150
+          _IntMaxValue: 65535
+        PreferredBackupWindow:
+          _Type: string
+          _Required: false
+          _StringRegex: '[0-2][0-9]:[0-5][0-9]-[0-2][0-9]:[0-5][0-9]'
+        PreferredMaintenanceWindow:
+          _Type: string
+          _Required: false
+          _StringRegex: '(Mon|Tue|Wed|Thu|Fri|Sat|Sun):[0-2][0-9]:[0-5][0-9]-(Mon|Tue|Wed|Thu|Fri|Sat|Sun):[0-2][0-9]:[0-5][0-9]'
+        Parameters:
+          _Required: false
+          Parameter:
+            _KeyRegex: '.*'
+            _KeyCardinality: 0+
+            _Type: scalar
+        DBSnapshotIdentifier:
+          _Type: string
+          _Required: false
+
+    DBClusterParameterGroup:
+      _Required: true
+      _Type: AWS::DocDB::DBClusterParameterGroup
+      Properties:
+        Family:
+          _Type: string
+          _StringRegex: 'do(.+)'
+      #   Parameters:
+      #     _Required: false
+      #     Parameter:
+      #       _KeyRegex: '.*'
+      #       _KeyCardinality: 0+
+      #       _Type: scalar
+
+    DBInstance:
+      _KeyRegex: ".*DBInstance"
+      _KeyCardinality: 0-16
+      DependsOn:
+        _Type: list
+        _ListItemType: string
+        _Required: false
+      Properties:
+        AutoMinorVersionUpgrade:
+          _Type: boolean
+          _Required: false
+        DBInstanceClass:
+          _Type: string
+          _StringRegex: 'db\..*'
+        # DBInstanceIdentifier:
+        #   _Type: scalar
+        CACertificateIdentifier:
+          _Type: string
+          _Required: false
+        PreferredMaintenanceWindow:
+          _Type: string
+          _Required: false
+          _StringRegex: '(Mon|Tue|Wed|Thu|Fri|Sat|Sun):[0-2][0-9]:[0-5][0-9]-(Mon|Tue|Wed|Thu|Fri|Sat|Sun):[0-2][0-9]:[0-5][0-9]'
+
+    DBInstanceParameterGroup:
+      _Required: false
+      _Type: AWS::DocDB::DBParameterGroup
+      Properties:
+        Family:
+          _Type: string
+        Parameters:
+          _Required: false
+          Parameter:
+            _KeyRegex: '.*'
+          _KeyCardinality: 0+
+          _Type: scalar
+
+    LogGroups:
+      _Type: Resource::AWS::Logs::LogGroup
+      _KeyCardinality: 0+
+      _KeyEnum: [AuditLogGroup, ErrorLogGroup, GeneralLogGroup, SlowQueryLogGroup]

@@ -1,0 +1,274 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set status_details = { "Scope": "component", "Consumable": app[component_name].Type, "Environment": context.Environment } %}
+{% set bucket_stack_name = [ context.Portfolio, context.App, context.BranchShortName, component_name, "buckets" ] | join("-") %}
+{% set cloudfront_stack_name = [ context.Portfolio, context.App, context.BranchShortName, component_name, "cloudfront" ] | join("-") %}
+{% set loader_stack_name = [ context.Portfolio, context.App, context.BranchShortName, context.Build, component_name, "loader" ] | join("-") %}
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/deploy/start"
+  DependsOn:
+    - "{{ context.BuildPrn }}:action/pre-deploy/*"
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Component deploy started
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# == Stage: gather-facts ==
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/deploy/gather-facts"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/start"
+
+# == Stage: security ==
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/security-items"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/gather-facts"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.security_items_stack_name }}"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/security-items.yaml"
+    Tags:
+      {{ 'branch' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating security items
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created security items
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create security items
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# == Stage: deploy ==
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/start"
+  DependsOn:
+    - "{{ context.BuildPrn }}:*:action/deploy/security-items"
+    # User-specified component dependencies
+    {% for dependency in (app[component_name].DependsOn | ensure_list) %}
+    - "{{ context.BuildPrn }}:{{ dependency }}:action/deploy/main"
+    {% endfor %}
+
+# Deploy the S3 bucket stack
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/buckets"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/start"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ bucket_stack_name }}"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/deploy-buckets.yaml"
+    StackParameters:
+      KmsKeyArn: "{{ '{{' }} '{{ context.BuildPrn }}:output/KmsKeyArn' | lookup('') {{ '}}' }}"
+      SecurityStackName: "{{ names.security_items_stack_name }}"
+    Tags:
+      {{ 'branch' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating the S3 bucket
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created the S3 buckets
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create the S3 buckets
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Deploy the bucket loader stack
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/bucket-loader"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/buckets"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ loader_stack_name }}"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/deploy-bucket-loader.yaml"
+    StackParameters:
+      BucketStackName: "{{ bucket_stack_name }}"
+      KmsKeyArn: "{{ '{{' }} '{{ context.BuildPrn }}:output/KmsKeyArn' | lookup('') {{ '}}' }}"
+      SecurityStackName: "{{ names.security_items_stack_name }}"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Loading files into S3
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Loaded files into S3
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to load files into S3
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Delete the bucket loader stack
+- Type: AWS::DeleteStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/delete-bucket-loader"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/bucket-loader"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ loader_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Deleting the bucket loader instance
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Deleted the bucket loader instance
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to delete the bucket loader instance
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Deploy the CloudFront stack
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/cloudfront"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/buckets"
+    - "{{ context.ComponentPrn }}:action/deploy/main/bucket-loader"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ cloudfront_stack_name }}"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/deploy-cloudfront.yaml"
+    StackParameters:
+      BucketStackName: "{{ bucket_stack_name }}"
+      KmsKeyArn: "{{ '{{' }} '{{ context.BuildPrn }}:output/KmsKeyArn' | lookup('') {{ '}}' }}"
+      SecurityStackName: "{{ names.security_items_stack_name }}"
+      StrippedPublicOnlyRegionalHostedZoneName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/deploy/main/buckets/PublicOnlyRegionalHostedZoneName' | lookup | rstrip('.') {{ '}}' }}"
+      StrippedRegionalHostedZoneName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/deploy/main/buckets/RegionalHostedZoneName' | lookup | rstrip('.') {{ '}}' }}"
+    Tags:
+      {{ 'branch' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating the CloudFront distribution
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created the CloudFront distribution
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create the CloudFront distribution
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Invalidate the cache
+- Type: AWS::CreateCloudFrontInvalidation
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/cloudfront-invalidation"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/cloudfront"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    DistributionId: "{{ '{{' }} '{{ context.ComponentPrn }}:var/deploy/main/cloudfront/DistributionId' | lookup {{ '}}' }}"
+    Paths:
+      - "/*"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating CloudFront cache invalidation
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created CloudFront cache invalidation
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create CloudFront cache invalidation
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Create the pointers stack
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/pointers"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/cloudfront"
+  SaveOutputs: true
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.pointers_stack_name }}"
+    StackParameters:
+      BucketStackName: "{{ bucket_stack_name }}"
+      CloudFrontStackName: "{{ cloudfront_stack_name }}"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/deploy-pointers.yaml"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating deployment pointers
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created deployment pointers
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create deployment pointers
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/deploy/main"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/*"
+
+# Put component deploy success event
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/deploy/success"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main"
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: DEPLOY_COMPLETE
+          Message: Component deploy successful
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

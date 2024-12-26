@@ -1,0 +1,72 @@
+{% set Build = context.Build %}
+{% if 'PersistUpdateVersion' in app[component_name] %}
+{% set Build = app[component_name].PersistUpdateVersion %}
+{% endif %}
+{% set resource = app[component_name].Configuration.Bucket %}
+{% set scope = resource | extract('Properties.BucketName."Fn::Pipeline::S3BucketName".Scope', 'build') %}
+{% if scope == 'branch' %}
+{% set resources_stack_name = [ context.Portfolio, context.App, context.BranchShortName, component_name, "resources" ] | join("-") %}
+{% set default_bucket_name = [ context.Portfolio, context.App, context.BranchShortName, component_name ] | join("-") %}
+{% else %}
+{% set default_bucket_name = [ context.Portfolio, context.App, context.BranchShortName, Build, component_name ] | join("-") %}
+{% endif %}
+{% include "AWS/_shared/actions/teardown-persist.actions" %}
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set status_details = { "Scope": "component", "Consumable": app[component_name].Type, "Environment": context.Environment } %}
+
+# Check to see if the bucket is referenced by any other stacks which would be the case if the bucket is persisted.
+- Type: AWS::GetStackReferences
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/get-resource-references"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/pointers"
+    - "{{ context.ComponentPrn }}:action/teardown/main/security-rules"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/gather-facts/pointers/ResourcesStackName' | lookup('{{ names.resources_stack_name }}') {{ '}}' }}"
+    OutputName: BucketName
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Performing bucket reference check
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Performed bucket reference check
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to do bucket reference check
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Empty the bucket
+- Type: AWS::EmptyBucket
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/empty-bucket"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/get-resource-references"
+  Before:
+    - "{{ context.ComponentPrn }}:action/teardown/main/resources"
+  Condition: "'{{ context.ComponentPrn }}:var/teardown/main/get-resource-references/NumReferences' | lookup == 0"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    BucketName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/gather-facts/pointers/BucketName' | lookup('{{ default_bucket_name }}') {{ '}}' }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Emptying the S3 bucket
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Emptied the S3 bucket
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to empty the S3 bucket
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

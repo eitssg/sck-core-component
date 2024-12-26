@@ -1,0 +1,30 @@
+{% set status_details = { "Scope": "build", "Environment": context.Environment } %}
+
+- Type: System::NoOp
+  Label: "{{ context.BuildPrn }}:action/pre-deploy/status-starting"
+  DependsOn: []
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: "Build deploy started"
+        Identity: "{{ context.BuildPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+- Type: System::NoOp
+  Label: "{{ context.BuildPrn }}:action/post-deploy/status-complete"
+  DependsOn:
+    - "{{ context.BuildPrn }}:*:action/deploy/*"
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: DEPLOY_COMPLETE
+          Message: "Build deploy successful"
+        Identity: "{{ context.BuildPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

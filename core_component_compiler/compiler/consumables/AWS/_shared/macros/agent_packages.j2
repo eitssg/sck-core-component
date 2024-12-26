@@ -1,0 +1,19 @@
+{% macro agent_packages(resource, image_alias, context) %}
+  {# FIXME Refactor to support more than one agent that relies on ansible. #}
+  {% set ns = namespace() %}
+  {% set ns.packages_rendered = False %}
+  {% set agentlist = resource | extract('Metadata."Pipeline::Agents"', {}) %}
+  {% for agentname, config in agentlist.items() %}
+    {% set agent_context = context.get('Agents', {}).get(agentname, {}) %}
+    {% if agentname == 'datadog' and agent_context.get('enabled', False) == True and config.get('enabled', False) == True %}
+      {% if 'rhel' in image_alias %}
+        {% set ns.packages_rendered = True %}
+yum:
+  ansible: []
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+  {% if ns.packages_rendered == False %}
+{}
+  {% endif %}
+{% endmacro %}

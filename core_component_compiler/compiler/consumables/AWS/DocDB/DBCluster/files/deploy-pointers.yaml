@@ -1,0 +1,110 @@
+---
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set resource = app[component_name].Configuration.DBCluster %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::DocDB - {{ component_name }} - pointers
+
+Parameters:
+  BaseStackName:
+    Type: String
+
+  ResourcesStackName:
+    Type: String
+
+Resources:
+
+  DBClusterDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId:
+        Fn::ImportValue: core-network:HostedZoneId
+      Name:
+        Fn::Sub:
+          - "{{ names.deployment_dns_prefix }}.${RegionalHostedZoneName}"
+          - RegionalHostedZoneName:
+              Fn::ImportValue: core-network:RegionalHostedZoneName
+      ResourceRecords:
+        - Fn::ImportValue:
+            Fn::Sub: "${ResourcesStackName}:DBClusterEndpoint"
+      Type: CNAME
+      TTL: 60
+
+  DbReaderDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId:
+        Fn::ImportValue: core-network:HostedZoneId
+      Name:
+        Fn::Sub:
+          - "ro.{{ names.deployment_dns_prefix }}.${RegionalHostedZoneName}"  # Dash RO = readonly, as per aurora's dns pattern.
+          - RegionalHostedZoneName:
+              Fn::ImportValue: core-network:RegionalHostedZoneName
+      ResourceRecords:
+        - Fn::ImportValue:
+            Fn::Sub: "${ResourcesStackName}:DbReaderEndpoint"
+      Type: CNAME
+      TTL: 60
+
+Outputs:
+
+  # Pipeline outputs
+
+  Build:
+    Value: "{{ context.Build }}"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:Build"
+
+  BaseStackName:
+    Value:
+      Ref: BaseStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BaseStackName"
+
+  PointersStackName:
+    Value:
+      Ref: "AWS::StackName"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:PointersStackName"
+
+  ResourcesStackName:
+    Value:
+      Ref: ResourcesStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:ResourcesStackName"
+
+  # DB outputs
+
+  DBClusterId:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:DBClusterId"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DBClusterId"
+
+  DBClusterPort:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:DBClusterPort"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DBClusterPort"
+
+  DeploymentDns:
+    Value:
+      Ref: DBClusterDnsRecord
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DeploymentDns"
+
+  DeploymentReaderDns:
+    Value:
+      Ref: DbReaderDnsRecord
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DeploymentReaderDns"

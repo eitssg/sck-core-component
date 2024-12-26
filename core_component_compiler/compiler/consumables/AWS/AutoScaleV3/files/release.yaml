@@ -1,0 +1,72 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+# CLB/ALB suppport.
+{% set config = app[component_name].Configuration %}
+{% set load_balancer = config.get('LoadBalancer', config.get('NetworkLoadBalancer')) %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::AutoScaleV3 - {{ component_name }} - release
+
+Resources:
+  PrivateReleaseDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId:
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:HostedZoneId"
+      Name:
+        Fn::Sub:
+          - "{{ names.release_dns_prefix_hyphen }}.${RegionalHostedZoneName}"
+          - RegionalHostedZoneName:
+              Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:RegionalHostedZoneName"
+      ResourceRecords:
+        - Fn::ImportValue:
+            Fn::Sub: "{{ names.pointers_stack_name }}:PrivateDeploymentDns"
+      Type: CNAME
+      TTL: 60
+
+  {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+  PublicReleaseDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId:
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:PublicOnlyHostedZoneId"
+      Name:
+        Fn::Sub:
+          - "{{ names.release_dns_prefix_hyphen }}.${PublicOnlyRegionalHostedZoneName}"
+          - PublicOnlyRegionalHostedZoneName:
+              Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:PublicOnlyRegionalHostedZoneName"
+      ResourceRecords:
+        - Fn::ImportValue:
+            Fn::Sub: "{{ names.pointers_stack_name }}:PublicDeploymentDns"
+      Type: CNAME
+      TTL: 60
+  {% endif %}
+
+Outputs:
+  Build:
+    Value: "{{ context.Build }}"
+
+  BaseStackName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "{{ names.pointers_stack_name }}:BaseStackName"
+
+  PointersStackName:
+    Value: "{{ names.pointers_stack_name }}"
+
+  PrivateReleaseDns:
+    Value:
+      Ref: PrivateReleaseDnsRecord
+
+  PublicReleaseDns:
+    Value:
+      {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+      Ref: PublicReleaseDnsRecord
+      {% else %}
+      "none"
+      {% endif %}
+
+  ResourcesStackName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "{{ names.pointers_stack_name }}:ResourcesStackName"

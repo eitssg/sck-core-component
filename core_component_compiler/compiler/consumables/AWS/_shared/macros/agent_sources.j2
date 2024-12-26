@@ -1,0 +1,20 @@
+{% macro agent_sources(resource, context) %}
+{% set agentlist = resource | extract('Metadata."Pipeline::Agents"', {}) %}
+{% set image_alias = resource.Properties.ImageId | image_name %}
+{% if 'win' in image_alias %}
+C:\pipeline\AmazonCloudWatchAgent: https://s3.amazonaws.com/amazoncloudwatch-agent/windows/amd64/latest/AmazonCloudWatchAgent.zip
+{% else %}
+{% set ns = namespace() %}
+{% set ns.sources_rendered = False %}
+{% for agentname, config in agentlist.items() %}
+{% set agent_context = context.get('Agents', {}).get(agentname, {}) %}
+{% if agentname == 'datadog' and agent_context.get('enabled', False) == True and config.get('enabled', False) == True %}
+{% set ns.sources_rendered = True %}
+/opt/pipeline/ansible/common: "{{ context.FilesBucketUrl }}/files/shared/common/ansible/master/_latest/ansible.zip"
+{% endif %}
+{% endfor %}
+{% if ns.sources_rendered == False %}
+{}
+{% endif %}
+{% endif %}
+{% endmacro %}

@@ -1,0 +1,87 @@
+{% set resources_stack_name = [ context.Portfolio, context.App, context.BranchShortName, component_name, "resources" ] | join("-") %}
+{% include "AWS/_shared/actions/teardown-persist.actions" %}
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set status_details = { "Scope": "component", "Consumable": app[component_name].Type, "Environment": context.Environment } %}
+
+# Get stacks referencing the resources stack (so we know if it's about to be torn down)
+- Type: AWS::GetStackReferences
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/get-resource-references"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/pointers"
+    - "{{ context.ComponentPrn }}:action/teardown/main/security-rules"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.resources_stack_name }}"
+    OutputName: FunctionName
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Performing reference check
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Performed reference check
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to do reference check
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Retrieve security group id, to delete the ENIs
+- Type: AWS::GetStackOutputs
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/get-security-outputs"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/get-resource-references"
+  Condition: "'{{ context.ComponentPrn }}:var/teardown/main/get-resource-references/NumReferences' | lookup == 0"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.security_items_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Retrieving security item details
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Retrieved security item details
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to retrieve security item details
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Delete the function's ENIs, if the resources stack is unreferenced (ie. will be torn down)
+- Type: AWS::DeleteSecurityGroupEnis
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/delete-enis"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/main/get-resource-references"
+    - "{{ context.ComponentPrn }}:action/teardown/main/get-security-outputs"
+  Condition: "'{{ context.ComponentPrn }}:var/teardown/main/get-resource-references/NumReferences' | lookup == 0"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    SecurityGroupId: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/main/get-security-outputs/SecurityGroupId' | lookup('') {{ '}}' }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleting Lambda ENIs
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleted Lambda ENIs
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to delete Lambda ENIs
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

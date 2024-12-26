@@ -1,0 +1,10 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% from "AWS/_shared/macros/agent_files_v3.j2" import agent_files with context %}
+{% from "AWS/_shared/macros/agent_commands_v3.j2" import agent_commands with context %}
+{% from "AWS/_shared/macros/agent_services_v3.j2" import agent_services with context %}
+
+{% if 'ApplicationLoadBalancer' in app[component_name].Configuration %}
+{% include "AWS/AutoScaleAlbLt/tempfiles/deploy-resources-alb.yaml" %}
+{% else %}
+{% include "AWS/AutoScaleAlbLt/tempfiles/deploy-resources-clb.yaml" %}
+{% endif %}

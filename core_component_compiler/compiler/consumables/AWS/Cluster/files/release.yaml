@@ -1,0 +1,29 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::Cluster - {{ component_name }} - release
+
+Conditions:
+  Never: { "Fn::Equals": [ "1", "2" ] }
+
+Resources:
+  NoResources:
+    Condition: Never
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+Outputs:
+  Build:
+    Value: "{{ context.Build }}"
+
+  BaseStackName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "{{ names.pointers_stack_name }}:BaseStackName"
+
+  PointersStackName:
+    Value: "{{ names.pointers_stack_name }}"
+
+  ResourcesStackName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "{{ names.pointers_stack_name }}:ResourcesStackName"

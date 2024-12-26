@@ -1,0 +1,62 @@
+AWS::ElastiCache::Redis:
+  _Type: Component
+
+  Configuration:
+    ReplicationGroup:
+      Pipeline::Security:
+        _Type: Pipeline::IpSecurity
+        _Required: false
+      DeletionPolicy:
+        _Type: string
+        _Required: false
+        _StringEnum: [ Snapshot, Delete ]
+      Properties:
+        AutoMinorVersionUpgrade:
+          _Type: boolean
+          _Required: false
+        CacheNodeType:
+          _Type: string
+          _Required: true
+        EngineVersion:
+          _Type: string
+          _Required: false
+          _StringRegex: '([0-9]+)\.([0-9]+)\.([0-9]+)|([0-9]+)\.([0-9]+)'
+        NumNodeGroups:
+          _Type: int
+          _Required: true
+          _IntMinValue: 1
+        Port:
+          _Type: int
+          _Required: false
+          _IntMinValue: 1150
+          _IntMaxValue: 65535
+        PreferredMaintenanceWindow:
+          _Type: string
+          _Required: false
+          _StringRegex: '(mon|tue|wed|thu|fri|sat|sun):[0-2][0-9]:[0-5][0-9]-(mon|tue|wed|thu|fri|sat|sun):[0-2][0-9]:[0-5][0-9]'
+        ReplicasPerNodeGroup:
+          _Type: int
+          _Required: true
+          _IntMinValue: 0
+          _IntMaxValue: 5
+        SecurityGroupIds:
+          _Type: string
+          _Required: false
+          _ListItemSpec:
+            _Type: string
+        SnapshotName:
+          _Type: Fn::Pipeline::SnapshotId
+          _Required: false
+        SnapshotRetentionLimit:
+          _Type: int
+          _Required: false
+          _IntMinValue: 1
+          _IntMaxValue: 35
+        SnapshotWindow:
+          _Type: string
+          _Required: false
+          _StringRegex: '[0-2][0-9]:[0-5][0-9]-[0-2][0-9]:[0-5][0-9]'
+
+  ParameterGroup:
+    _Required: false
+    _Type: AWS::ElastiCache::ParameterGroup

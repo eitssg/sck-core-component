@@ -1,0 +1,43 @@
+{% macro win_events() %}
+$EventLogId = "core-automation-bootstrap"
+$EventLogName = "Pipeline"
+
+# Setup Eventlog for pipeline custom logs in windows event viewer. 
+# These will be published to CloudWatch Logs.
+
+function Set-PipelineEventLog {
+    Try {
+        if (![System.Diagnostics.EventLog]::SourceExists("$EventLogId")) {
+            New-EventLog -LogName $EventLogName -Source $EventLogId
+        }
+    }
+    Catch {
+        Write-Error "Failed to setup windows custom eventlog source"
+        exit 0
+    }
+}
+function Invoke-LogVerbose {
+ Param (
+    [Parameter(Mandatory=$true)] [string]$message
+  )
+    $servername = "$env:computername.$env:userdnsdomain"
+    $timestamp_with_newline = (get-date).ToUniversalTime().ToString("yyyy-MM-dd hh:mm:ss.fffff")| Out-String
+    $timestamp = $timestamp_with_newline.replace("`n","").replace("`r","")
+    $log_with_timestamp = ("$timestamp - INFO - servername=$servername message=`"$message`"")
+    $log_with_timestamp = ($log_with_timestamp + "in Script: " + $MyInvocation.ScriptName)
+    Write-EventLog -LogName $EventLogName -Source $EventLogId -EntryType Information -EventId 1 -Message "$log_with_timestamp"
+    Write-Verbose $log_with_timestamp
+}
+function Invoke-LogError {
+ Param (
+    [Parameter(Mandatory=$true)] [string]$message
+  )
+    $servername = "$env:computername.$env:userdnsdomain"
+    $timestamp_with_newline = (get-date).ToUniversalTime().ToString("yyyy-MM-dd hh:mm:ss.fffff")| Out-String
+    $timestamp = $timestamp_with_newline.replace("`n","").replace("`r","")
+    $log_with_timestamp = ("$timestamp - ERROR - servername=$servername message=`"$message`"")
+    $log_with_timestamp = ($log_with_timestamp + "in Script: " + $MyInvocation.ScriptName)
+    Write-EventLog -LogName $EventLogName -Source $EventLogId -EntryType Error -EventId 2 -Message ("$log_with_timestamp errorexception=" + $Error[0])
+    Write-Error $log_with_timestamp
+}
+{% endmacro %}

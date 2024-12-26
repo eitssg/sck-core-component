@@ -1,0 +1,79 @@
+{% set table_name = [ context.Portfolio, context.App, context.BranchShortName, context.Build, component_name ] | join("-") %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::DynamoDB - {{ component_name }} - resources
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Resources:
+  # DynamoDB table
+  {% set resource = app[component_name].Configuration.Table %}
+  Table:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        {{ resource.Properties.AttributeDefinitions | to_yaml | indent(8) }}
+      {% if 'BillingMode' in resource.Properties %}
+      BillingMode: {{ resource.Properties.BillingMode }}
+      {% endif %}
+      {% if 'GlobalSecondaryIndexes' in resource.Properties %}
+      GlobalSecondaryIndexes:
+        {{ resource.Properties.GlobalSecondaryIndexes | to_yaml | indent(8) }}
+      {% endif %}
+      KeySchema:
+        {{ resource.Properties.KeySchema | to_yaml | indent(8) }}
+      {% if 'LocalSecondaryIndexes' in resource.Properties %}
+      LocalSecondaryIndexes:
+        {{ resource.Properties.LocalSecondaryIndexes | to_yaml | indent(8) }}
+      {% endif %}
+      {% if 'ProvisionedThroughput' in resource.Properties %}
+      ProvisionedThroughput:
+        {{ resource.Properties.ProvisionedThroughput | to_yaml | indent(8) }}
+      {% endif %}
+      SSESpecification:
+        SSEEnabled: true
+      {% if 'StreamSpecification' in resource.Properties %}
+      StreamSpecification:
+        {{ resource.Properties.StreamSpecification | to_yaml | indent(8) }}
+      {% endif %}
+      {% if 'TableName' in resource.Properties %}
+      TableName: {{ resource.Properties.TableName }}
+      {% else %}
+      TableName: "{{ table_name }}"
+      {% endif %}
+      {% if 'TimeToLiveSpecification' in resource.Properties %}
+      TimeToLiveSpecification:
+        {{ resource.Properties.TimeToLiveSpecification | to_yaml | indent(8) }}
+      {% endif %}
+
+Outputs:
+  StreamArn:
+    Value:
+      {% if 'StreamSpecification' in resource.Properties %}
+      Fn::GetAtt: [ Table, StreamArn ]
+      {% else %}
+      "none"
+      {% endif %}
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:StreamArn"
+
+  TableArn:
+    Value:
+      Fn::GetAtt: [ Table, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:TableArn"
+
+  TableName:
+    Value:
+      Ref: Table
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:TableName"

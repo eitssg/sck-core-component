@@ -1,0 +1,224 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set config = app[component_name].Configuration %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::VPCEndpoint - {{ component_name }} - resources
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Resources:
+
+  # Load balancer
+  {% set resource = app[component_name].Configuration %}
+  VPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      {% if resource.Properties.PrivateDnsEnabled | d(false) %}
+      PrivateDnsEnabled: false
+      {% endif %}
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:SecurityGroupId"
+      ServiceName: com.amazonaws.vpce.{{ context.AwsRegion }}.{{ resource.Properties.ServiceName }}
+      SubnetIds:
+        - Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:PrivateSubnet1Id"
+        - Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:PrivateSubnet2Id"
+        {% if context.AzCount >= 3 %}
+        - Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:PrivateSubnet3Id"
+        {% endif %}
+      VpcEndpointType: Interface
+      VpcId: 
+        Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:VpcId"
+    # Developer needs to define "DefaultTargetGroup" for the default TG to be invoked.
+
+  NLBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn:
+      - LambdaFunction
+      - GetPrivateIPs
+    Properties:
+      {% if resource.Properties.TargetPort | d(443) %}
+      Port: {{ resource.Properties.TargetPort }}
+      {% endif %}
+      Protocol: TCP
+      VpcId:
+        Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:VpcId"
+      TargetType: ip
+      Targets:
+        - Id: !GetAtt GetPrivateIPs.IP0
+        - Id: !GetAtt GetPrivateIPs.IP1
+        - Id: !GetAtt GetPrivateIPs.IP2
+  
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+  LambdaPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: LambdaPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - ec2:*
+              - logs:*
+            Resource: '*'
+      Roles:
+        - !Ref LambdaRole
+  
+  LambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    DeletionPolicy: 'Delete'
+    Properties:
+      Code:
+        ZipFile: !Sub |
+          import cfnresponse
+          import json
+          import boto3
+          def lambda_handler(event, context):
+              print('REQUEST RECEIVED:\n' + json.dumps(event))
+              responseData = {}
+              if event['RequestType'] == 'Delete':
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                return
+              if event['RequestType'] == 'Create':
+                try:
+                  ec2 = boto3.resource('ec2')
+                  enis = event['ResourceProperties']['NetworkInterfaceIds']
+                  for index, eni in enumerate(enis):
+                    network_interface = ec2.NetworkInterface(eni)
+                    responseData['IP' + str(index)] = network_interface.private_ip_address
+                    print(responseData)
+                except Exception as e:
+                  responseData = {'error': str(e)}
+                  cfnresponse.send(event, context, cfnresponse.FAILED, responseData)
+                  return
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaRole.Arn
+      Runtime: python3.12
+      Timeout: 10
+  # # ------------------------------------------------------------#
+  # # Custom Resource
+  # # ------------------------------------------------------------#
+  GetPrivateIPs:
+    DependsOn:
+      - VPCEndpoint
+    Type: Custom::GetPrivateIPs
+    Properties:
+      ServiceToken: !GetAtt LambdaFunction.Arn
+      NetworkInterfaceIds: !GetAtt VPCEndpoint.NetworkInterfaceIds
+
+  # Target Group
+  # See https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-elasticloadbalancingv2-targetgroup.html
+  {% set resource = app[component_name].Configuration %}
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('TargetGroup') %}
+  {{ resource_name }}:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      {% if resource.Properties.HealthCheckProtocol is defined %}
+      HealthCheckProtocol: {{ resource.Properties.HealthCheckProtocol }}
+      {% endif %}
+      {% if resource.Properties.HealthCheckPort is defined %}
+      HealthCheckPort: {{ resource.Properties.HealthCheckPort }}
+      {% endif %}
+      HealthyThresholdCount: {{ resource.Properties.HealthyThresholdCount | d(3) }}
+      UnhealthyThresholdCount: {{ resource.Properties.UnhealthyThresholdCount | d(5) }}
+      # HealthCheckTimeoutSeconds: {{ resource.Properties.HealthCheckTimeoutSeconds | d(3) }}
+      HealthCheckIntervalSeconds: {{ resource.Properties.HealthCheckIntervalSeconds | d(30) }}
+      {% if resource.Properties.HealthCheckPath is defined %}
+      HealthCheckPath: {{ resource.Properties.HealthCheckPath }}
+      {% endif %}
+      {% if resource.Properties.Matcher is defined %}
+      Matcher:
+        HttpCode: {{ resource.Properties.Matcher.HttpCode | d('200') }}
+      {% endif %}
+      Port: {{ resource.Properties.Port | d(443) }}
+      Protocol: {{ resource.Properties.Protocol }}
+      VpcId:
+        Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:VpcId"
+      {% if resource.Properties.TargetGroupAttributes is defined %}
+      TargetGroupAttributes:
+        {{ resource.Properties.TargetGroupAttributes | to_yaml | indent(8) }}
+      {% endif %}
+  {% endfor %}
+
+  # Load balancer
+  {% set resource = app[component_name].Configuration %}
+  NetworkLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      {% if 'LoadBalancerAttributes' in resource.Properties %}
+      LoadBalancerAttributes:
+        {{ resource.Properties.LoadBalancerAttributes | to_yaml | indent(8) }}
+      # {% endif %}
+      Subnets:
+        - Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:PublicSubnet1Id"
+        - Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:PublicSubnet2Id"
+        {% if context.AzCount >= 3 %}
+        - Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:PublicSubnet3Id"
+        {% endif %}
+      Type: network
+      SecurityGroups: 
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:SecurityGroupExternalId"
+  
+  HTTPSlistener:
+   Type: "AWS::ElasticLoadBalancingV2::Listener"
+   Properties:
+     DefaultActions:
+       - Type: forward
+         TargetGroupArn: !Ref NLBTargetGroup
+     LoadBalancerArn: !Ref NetworkLoadBalancer
+     Port: 443
+     Protocol: "TCP"
+
+Outputs:
+
+  LoadBalancerDnsName:
+    Value:
+      Fn::GetAtt: [ NetworkLoadBalancer, DNSName ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LoadBalancerDnsName"
+
+  LoadBalancerHostedZoneId:
+    Value:
+      Fn::GetAtt: [ NetworkLoadBalancer, CanonicalHostedZoneID ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LoadBalancerHostedZoneId"
+
+  LoadBalancerArn:
+    Value:
+      Ref: NetworkLoadBalancer
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LoadBalancerArn"
+
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('Listener') %}
+  {{ resource_name }}Arn:
+    Value:
+      Ref: {{ resource_name }}
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:{{ resource_name }}Arn"
+
+  {% endfor %}
+

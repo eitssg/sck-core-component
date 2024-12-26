@@ -1,0 +1,159 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+{
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "C:\\cfn\\log\\cfn-init.log",
+            "log_group_name": "{{ names.log_group_name }}",
+            "log_stream_name": "{instance_id}/logs/cfn-init"
+          },
+          {
+            "file_path": "C:\\cfn\\log\\cfn-init-cmd.log",
+            "log_group_name": "{{ names.log_group_name }}",
+            "log_stream_name": "{instance_id}/logs/cfn-init-cmd"
+          },
+          {
+            "file_path": "C:\\cfn\\log\\cfn-wire.log",
+            "log_group_name": "{{ names.log_group_name }}",
+            "log_stream_name": "{instance_id}/logs/cfn-wire"
+          },
+          {
+            "file_path": "C:\\pipeline\\cloudinit\\logs\\cloud-init-output.log",
+            "log_group_name": "{{ names.log_group_name }}",
+            "log_stream_name": "{instance_id}/logs/cloud-init-output"
+          },
+          {
+            "file_path": "C:\\pipeline\\cloudinit\\logs\\cloud-installer-output.log",
+            "log_group_name": "{{ names.log_group_name }}",
+            "log_stream_name": "{instance_id}/logs/cloud-installer-output"
+          },
+          {
+            "file_path": "C:\\pipeline\\cloudinit\\logs\\cloud-soe-output.log",
+            "log_group_name": "{{ names.log_group_name }}",
+            "log_stream_name": "{instance_id}/logs/cloud-soe-output"
+          },
+          {
+            "file_path": "C:\\pipeline\\cloudinit\\logs\\cloud-update-output.log",
+            "log_group_name": "{{ names.log_group_name }}",
+            "log_stream_name": "{instance_id}/logs/cloud-update-output"
+          },
+          {
+            "file_path": "C:\\ProgramData\\Amazon\\SSM\\Logs\\amazon-ssm-agent.log",
+            "log_group_name": "{{ names.log_group_name }}",
+            "log_stream_name": "{instance_id}/logs/ssm-agent"
+          },
+          {
+            "file_path": "C:\\ProgramData\\Amazon\\EC2-Windows\\Launch\\Log\\UserdataExecution.log",
+            "log_group_name": "{{ names.log_group_name }}",
+            "log_stream_name": "{instance_id}/logs/userdata-execution"
+          }
+{% set collect_list = app[component_name] | extract('Configuration.Instance.Metadata."Pipeline::Agents".cloudwatch.files', []) %}
+{% for item in collect_list %}
+          ,
+          {
+            "file_path": {{ item.path | to_json }},
+            "log_group_name": "{{ names.log_group_name }}",
+{% if item.timezone is defined %}
+            "timezone": "{{ item.timezone }}",
+{% endif %}
+{% if item.timestamp_format is defined %}
+            "timestamp_format": "{{ item.timestamp_format }}",
+{% endif %}
+{% if item.multi_line_start_pattern is defined %}
+            "multi_line_start_pattern": "{{ item.multi_line_start_pattern }}",
+{% endif %}
+{% if item.encoding is defined %}
+            "encoding": "{{ item.encoding }}",
+{% endif %}
+            "log_stream_name": "{instance_id}/logs/{{ item.log_stream_name | d(item.path) | replace("*", "x") | replace(":", "") | replace("\\", "/") }}"
+          }
+{% endfor %}
+        ]
+      },
+      "windows_events": {
+        "collect_list": [
+          {
+            "event_name": "System",
+            "event_levels": [ "WARNING", "ERROR", "CRITICAL" ],
+            "log_group_name": "{{ names.log_group_name }}",
+            "log_stream_name": "{instance_id}/events/System",
+            "event_format": "text"
+          },
+          {
+            "event_name": "Pipeline",
+            "event_levels": [ "INFORMATION", "WARNING", "ERROR", "CRITICAL" ],
+            "log_group_name": "{{ names.log_group_name }}",
+            "log_stream_name": "{instance_id}/events/Pipeline",
+            "event_format": "text"
+          },
+          {
+            "event_name": "Application",
+            "event_levels": [ "WARNING", "ERROR", "CRITICAL" ],
+            "log_group_name": "{{ names.log_group_name }}",
+            "log_stream_name": "{instance_id}/events/Application",
+            "event_format": "text"
+          },
+          {
+            "event_name": "Security",
+            "event_levels": [ "INFORMATION", "WARNING", "ERROR", "CRITICAL" ],
+            "log_group_name": "{{ names.log_group_name }}",
+            "log_stream_name": "{instance_id}/events/Security",
+            "event_format": "text"
+          }
+{% set collect_list = app[component_name] | extract('Configuration.Instance.Metadata."Pipeline::Agents".cloudwatch.windows_events', []) %}
+{% for item in collect_list %}
+          ,
+          {
+            "event_name": "{{ item.event_name }}",
+            "event_levels": {{ item.event_levels | to_json | d('[ "INFORMATION", "WARNING", "ERROR", "CRITICAL" ]') }},
+            "log_group_name": "{{ names.log_group_name }}",
+            "log_stream_name": "{instance_id}/events/{{ item.event_name }}",
+            "event_format": "text"
+          }
+{% endfor %}
+        ]
+      }
+    }
+  },
+  "metrics": {
+    "append_dimensions": {
+      "AutoScalingGroupName": "${aws:AutoScalingGroupName}",
+      "ImageId": "${aws:ImageId}",
+      "InstanceId": "${aws:InstanceId}",
+      "InstanceType": "${aws:InstanceType}"
+    },
+    "metrics_collected": {
+      "LogicalDisk": {
+        "measurement": [ "% Free Space" ],
+        "metrics_collection_interval": 60,
+        "resources": [ "*"]
+      },
+      "Memory": {
+        "measurement": [ "% Committed Bytes In Use" ],
+        "metrics_collection_interval": 60
+      },
+      "Paging File": {
+        "measurement": [ "% Usage" ],
+        "metrics_collection_interval": 60,
+        "resources": [ "*" ]
+      },
+      "PhysicalDisk": {
+        "measurement": [ "% Disk Time" ],
+        "metrics_collection_interval": 60,
+        "resources": [ "*" ]
+      },
+      "Processor": {
+        "measurement": [
+          "% User Time",
+          "% Idle Time",
+          "% Interrupt Time"
+        ],
+        "metrics_collection_interval": 60,
+        "resources": [ "_Total" ]
+      }
+    }
+  }
+}

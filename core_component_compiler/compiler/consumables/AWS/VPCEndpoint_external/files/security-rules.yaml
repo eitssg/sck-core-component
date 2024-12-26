@@ -1,0 +1,71 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::VPCEndpoint - {{ component_name }} - security rules
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  ResourcesStackName:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+  Stage:
+    Type: String
+    Default: "final"
+
+Conditions:
+  FinalStage: { "Fn::Equals": [ Ref: Stage, "final" ] }
+
+Resources:
+
+  DefaultImport:
+    Metadata:
+      DefaultImport:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:DefaultExport"
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+  # == NLB SG ==
+  {% for rule in app[component_name].Configuration.Properties | ip_rules %}
+  IpRule{{ loop.index }}:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "{{ rule.Description }}"
+      GroupId:
+        Fn::ImportValue:
+          Fn::Sub: ${SecurityStackName}:SecurityGroupId
+      IpProtocol: {{ rule.Protocol }}
+      FromPort: {{ rule.FromPort }}
+      ToPort: {{ rule.ToPort }}
+      {% if rule.Type == 'cidr' %}
+      CidrIp: "{{ rule.Value }}"
+      {% else %}
+      SourceSecurityGroupId:
+        Fn::ImportValue: "{{ rule.Value }}"
+      {% endif %}
+  {% endfor %}
+  # == VPCE SG ==
+  {% for rule in app[component_name].Configuration.Properties.External | ip_rules %}
+  VPCERule{{ loop.index }}:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "{{ rule.Description }}"
+      GroupId:
+        Fn::ImportValue:
+          Fn::Sub: ${SecurityStackName}:SecurityGroupExternalId
+      IpProtocol: {{ rule.Protocol }}
+      FromPort: {{ rule.FromPort }}
+      ToPort: {{ rule.ToPort }}
+      {% if rule.Type == 'cidr' %}
+      CidrIp: "{{ rule.Value }}"
+      {% else %}
+      SourceSecurityGroupId:
+        Fn::ImportValue: "{{ rule.Value }}"
+      {% endif %}
+  {% endfor %}

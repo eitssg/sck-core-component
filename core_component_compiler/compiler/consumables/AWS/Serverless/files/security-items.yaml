@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::Serverless - {{ component_name }} - security items
+
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+        Version: "2012-10-17"
+      Path: "/"
+      {% if 'DefaultManagedPolicyArns' in context %}
+      ManagedPolicyArns:
+        # Default Managed policy ARNs
+        {{ context.DefaultManagedPolicyArns | to_yaml | indent(8) }}
+      {% endif %}
+
+  {% set resource = app[ component_name ].Configuration.Function %}
+  {% set vpc_attachment = resource | extract('Properties.VpcConfig."Fn::Pipeline::LambdaVpcConfig".VpcAccess', true) %}
+  {% if vpc_attachment %}
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Lambda security group
+      VpcId:
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+  {% endif %}
+
+Outputs:
+  DefaultExport:
+    Value:
+      Ref: AWS::StackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DefaultExport"
+
+  RoleArn:
+    Value:
+      Fn::GetAtt: [ Role, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:RoleArn"
+
+  RoleName:
+    Value:
+      Ref: Role
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:RoleName"
+
+  {% if vpc_attachment %}
+  SecurityGroupId:
+    Value:
+      Ref: SecurityGroup
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:SecurityGroupId"
+  {% endif %}

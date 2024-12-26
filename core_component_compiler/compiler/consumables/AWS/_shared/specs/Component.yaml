@@ -1,0 +1,14 @@
+Component:
+  Type:
+    _Type: string
+    _Required: true
+  Persist:
+    _Type: boolean
+    _Required: false
+  DependsOn:
+    _Type: list
+    _ListItemType: string
+    _Required: false
+  PersistUpdateVersion:
+    _Type: string
+    _Required: false

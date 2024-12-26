@@ -1,0 +1,133 @@
+{% if context | extract('Kms.AwsAccountId', None) %}
+{% set status_details = { "Scope": "build", "Environment": context.Environment } %}
+{% set kms_stack_name = [ context.Portfolio, context.App, context.Environment, "kms" ] | join("-") %}
+
+# KMS key creation
+- Type: AWS::CreateStack
+  Label: "{{ context.BuildPrn }}:action/pre-deploy/kms"
+  DependsOn:
+    - "{{ context.BuildPrn }}:action/pre-deploy/status-starting"
+  SaveOutputs: true
+  Params:
+    Account: "{{ context.Kms.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ kms_stack_name }}"
+    TemplateUrl: "{{ context.ApplicationUrlPrefix }}/kms-resources.yaml"
+    Tags:
+      {{ 'environment' | tags(component_name='kms') | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating / retrieving KMS keys
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created / retrieved KMS keys
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create / retrieve KMS keys
+        Identity: "{{ context.BuildPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# When deploying an app to a given account (i.e. nonprod-auto),
+# for each delegate account id (including nonprod-auto in this example),
+# create grants in each account, for its service linked roles.
+# Applies to both the app key and the soe key.
+{% for account in context.Kms.DelegateAwsAccountIds %}
+
+# Create grants for service linked roles in the delegated accounts
+- Type: AWS::KMS::CreateGrants
+  Label: "{{ context.BuildPrn }}:action/pre-deploy/kms-grants"
+  DependsOn:
+    - "{{ context.BuildPrn }}:action/pre-deploy/kms"
+  Condition: "{{ context.Kms.DelegateAwsAccountIds | ensure_list | length > 0 }}"
+  Params:
+    Account: "{{ account }}"
+    Region: "{{ context.AwsRegion }}"
+    IgnoreFailedGrants: true
+    KmsKeyArn: "{{ '{{' }} '{{ context.BuildPrn }}:output/KmsKeyArn' | lookup {{ '}}' }}"
+    GranteePrincipals:
+      - arn:aws:iam::{{ account }}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService
+      - arn:aws:iam::{{ account }}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling
+      - arn:aws:iam::{{ account }}:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS
+      - arn:aws:iam::{{ account }}:role/aws-service-role/elasticloadbalancing.amazonaws.com/AWSServiceRoleForElasticLoadBalancing
+      - arn:aws:iam::{{ account }}:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS
+      - arn:aws:iam::{{ account }}:role/aws-service-role/es.amazonaws.com/AWSServiceRoleForAmazonElasticsearchService
+    Operations:
+      - Encrypt
+      - Decrypt
+      - ReEncryptFrom
+      - ReEncryptTo
+      - GenerateDataKey
+      - GenerateDataKeyWithoutPlaintext
+      - DescribeKey
+      - CreateGrant
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating KMS key grants
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created KMS key grants
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create KMS key grants
+        Identity: "{{ context.BuildPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Create grants for service linked roles for SOE kms key in the delegated accounts
+- Type: AWS::KMS::CreateGrants
+  Label: "{{ context.BuildPrn }}:action/pre-deploy/soekms-grants"
+  DependsOn:
+    - "{{ context.BuildPrn }}:action/pre-deploy/kms-grants"
+  Condition: "{{ 'SoeKmsArn' in context }}"
+  Params:
+    Account: "{{ account }}" # Use the account which owns the service linked roles, not the compliance account!
+    Region: "{{ context.AwsRegion }}"
+    IgnoreFailedGrants: true
+    KmsKeyArn: "{{ context.SoeKmsArn | d({'Ref': 'AWS::NoValue'}) }}" # Key in compliance account
+    GranteePrincipals:
+      - arn:aws:iam::{{ account }}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService
+      - arn:aws:iam::{{ account }}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling
+      - arn:aws:iam::{{ account }}:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS
+      - arn:aws:iam::{{ account }}:role/aws-service-role/elasticloadbalancing.amazonaws.com/AWSServiceRoleForElasticLoadBalancing
+      - arn:aws:iam::{{ account }}:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS
+      - arn:aws:iam::{{ account }}:role/aws-service-role/es.amazonaws.com/AWSServiceRoleForAmazonElasticsearchService
+    Operations:
+      - Encrypt
+      - Decrypt
+      - ReEncryptFrom
+      - ReEncryptTo
+      - GenerateDataKey
+      - GenerateDataKeyWithoutPlaintext
+      - DescribeKey
+      - CreateGrant
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating SOE KMS key grants
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created SOE KMS key grants
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create SOE KMS key grants
+        Identity: "{{ context.BuildPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+{% endfor %}
+
+{% else %}
+# KMS is not configured for this deployment, skipping action generation
+{% endif %}

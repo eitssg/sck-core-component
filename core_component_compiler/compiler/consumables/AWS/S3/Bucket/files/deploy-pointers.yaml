@@ -1,0 +1,95 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set Build = context.Build %}
+{% if 'PersistUpdateVersion' in app[component_name] %}
+{% set Build = app[component_name].PersistUpdateVersion %}
+{% endif %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::S3::Bucket - {{ component_name }} - pointers
+
+Parameters:
+  BaseStackName:
+    Type: String
+
+  ResourcesStackName:
+    Type: String
+
+Resources:
+  # S3 URL TXT record
+  BucketS3UrlDeploymentDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId:
+        Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:HostedZoneId
+      Name:
+        Fn::Sub:
+          - "{{ names.deployment_dns_prefix }}.${RegionalHostedZoneName}"
+          - RegionalHostedZoneName:
+              Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:RegionalHostedZoneName
+      ResourceRecords:
+        - Fn::Sub:
+          - '"${Record}"'
+          - Record:
+              Fn::ImportValue:
+                Fn::Sub: "${ResourcesStackName}:BucketS3Url"
+      Type: TXT
+      TTL: 60
+
+Outputs:
+  Build:
+    Value: "{{ Build }}"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:Build"
+
+  BaseStackName:
+    Value:
+      Ref: BaseStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BaseStackName"
+
+  PointersStackName:
+    Value:
+      Ref: "AWS::StackName"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:PointersStackName"
+
+  ResourcesStackName:
+    Value:
+      Ref: ResourcesStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:ResourcesStackName"
+
+  BucketArn:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:BucketArn"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BucketArn"
+
+  BucketName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:BucketName"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BucketName"
+
+  BucketS3Url:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:BucketS3Url"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BucketS3Url"
+
+  BucketS3UrlDeploymentDns:
+    Value:
+      Ref: BucketS3UrlDeploymentDnsRecord
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BucketS3UrlDeploymentDns"

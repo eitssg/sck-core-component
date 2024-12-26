@@ -1,0 +1,44 @@
+AWS::RDS::DBParameterGroup:
+  Properties:
+    Description:
+      _Type: string
+    Family:
+      _Type: string
+    Parameters:
+      Parameter:
+        _KeyRegex: '.*'
+        _KeyCardinality: 1+
+        _Type: scalar
+
+AWS::RDS::OptionGroup:
+  Properties:
+    EngineName:
+      _Type: string
+    MajorEngineVersion:
+      _Type: string
+    OptionGroupDescription:
+      _Type: string
+    OptionConfigurations:
+      _Type: list
+      _ListItemSpec:
+        OptionName:
+          _Type: string
+        OptionSettings:
+          _Required: false
+          _Type: list
+          _ListItemSpec:
+            Name:
+              _Type: string
+            Value:
+              _Type: string
+        OptionVersion:
+          _Type: string
+          _Required: false
+        Port:
+          _Type: int
+          _Required: false
+        VpcSecurityGroupMemberships:
+          _Required:
+            Spec::Property: [ Port ]
+          _Type: list
+          _ListItemType: aws-string

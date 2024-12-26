@@ -1,0 +1,3 @@
+{% include "AWS/AutoScaleNoAlb/tempactions/deploy-persist-no-pointer-deployment.actions" %}
+{% include "AWS/_shared/actions/addons/deploy-log-groups.actions" %}
+{% include "AWS/AutoScaleNoAlb/tempactions/deploy-bake-image-version.actions" %}

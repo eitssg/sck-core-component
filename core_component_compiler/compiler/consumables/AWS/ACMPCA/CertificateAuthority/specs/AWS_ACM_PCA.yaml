@@ -1,0 +1,81 @@
+AWS::ACMPCA::CertificateAuthority:
+  _Type: Component
+
+  Configuration:
+    RootCA:
+      Pipeline::Security:
+        _Type: Pipeline::IamSecurity
+        _Required: false
+        _ListItemSpec:
+          Allow:
+            _ListItemSpec:
+              _StringEnum: [ read, write, admin ]        
+      
+      Properties:
+        KeyAlgorithm:
+          _Type: string
+          _Required: true
+        SigningAlgorithm:
+          _Type: string
+          _Required: true
+          _StringEnum: [SHA256WITHECDSA, SHA256WITHRSA, SHA384WITHECDSA, SHA384WITHRSA, SHA512WITHECDSA, SHA512WITHRSA]
+        OrganizationalUnit:
+          _Type: string
+          _Required: true
+
+    RootCACertificate:
+      Pipeline::Security:
+        _Type: Pipeline::IamSecurity
+        _Required: false
+        _ListItemSpec:
+          Allow:
+            _ListItemSpec:
+              _StringEnum: [ read, write, admin ]
+
+      Properties:
+        Value:
+          _Type: int
+          _Required: true
+        SigningAlgorithm:
+          _Type: string
+          _Required: true
+          _StringEnum: [SHA256WITHECDSA, SHA256WITHRSA, SHA384WITHECDSA, SHA384WITHRSA, SHA512WITHECDSA, SHA512WITHRSA]
+
+    SubordinateCAOne:
+      Pipeline::Security:
+        _Type: Pipeline::IamSecurity
+        _Required: false
+        _ListItemSpec:
+          Allow:
+            _ListItemSpec:
+              _StringEnum: [ read, write, admin ]
+    
+      Properties:
+        KeyAlgorithm:
+          _Type: string
+          _Required: true
+        SigningAlgorithm:
+          _Type: string
+          _Required: true
+          _StringEnum: [SHA256WITHECDSA, SHA256WITHRSA, SHA384WITHECDSA, SHA384WITHRSA, SHA512WITHECDSA, SHA512WITHRSA]
+        OrganizationalUnit:
+          _Type: string
+          _Required: true
+
+    SubordinateCAOneCACertificate:
+      Pipeline::Security:
+        _Type: Pipeline::IamSecurity
+        _Required: false
+        _ListItemSpec:
+          Allow:
+            _ListItemSpec:
+              _StringEnum: [ read, write, admin ]
+
+      Properties:
+        Value:
+          _Type: int
+          _Required: true
+        SigningAlgorithm:
+          _Type: string
+          _Required: true
+          _StringEnum: [SHA256WITHECDSA, SHA256WITHRSA, SHA384WITHECDSA, SHA384WITHRSA, SHA512WITHECDSA, SHA512WITHRSA]

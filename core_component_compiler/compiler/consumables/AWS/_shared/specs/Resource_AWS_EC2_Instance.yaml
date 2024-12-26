@@ -1,0 +1,111 @@
+Resource::AWS::EC2::Instance:
+  Pipeline::Security:
+    _Type: Pipeline::IpSecurity
+    _Required: false
+  CreationPolicy:
+    _Type: Common::CreationPolicy
+    _Required: false
+  DependsOn:
+    _Type: list
+    _Required: false
+    _ListItemType: aws-string
+  Metadata:
+    _Type: Common::Metadata
+    _Required: false
+  Properties:
+    BlockDeviceMappings:
+      _Type: Resource::AWS::EC2::Instance::BlockDeviceMappings
+      _Required: false
+    ImageId:
+      _Type: Fn::Pipeline::ImageId
+    InstanceType:
+      _Type: string
+    KeyName:
+      _Type: string
+      _Required: false
+    SubnetId:
+      _Type: Fn::Pipeline::SubnetId
+      _Required: true
+    CustomDnsName:
+      _Type: string
+      _Required: false
+    Dynatrace:
+      _Type: boolean
+      _Required: false
+    DynatraceVersion:
+      _Type: string
+      _Required: false
+
+Resource::AWS::EC2::Instance::BlockDeviceMappings:
+  _Type: list
+  _ListItemType: Resource::AWS::EC2::Instance::BlockDeviceMappings::Item
+  _ListLength: 0-5
+
+Resource::AWS::EC2::Instance::BlockDeviceMappings::Item:
+  DeviceName:
+    _Type: string
+    _StringRegex: "((/dev/)?xvd[a-z])|((/dev/)?xvd[b-c][a-z])|(/dev/sd[a-z])|(/dev/sd[a-z][1-9])|(/dev/sd[a-z]1[0-5])|(/dev/hd[a-z])|(/dev/hd[a-z][0-9]{1,2})"
+    _Documentation:
+      - https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/device_naming.html
+      - https://docs.aws.amazon.com/AWSEC2/latest/WindowsGuide/device_naming.html
+    _Required: true
+  Ebs:
+    _Required:
+      Spec::Not:
+        Spec::Property: [ VirtualName ]
+    _Configurable:
+      Spec::Not:
+        Spec::Property: [ VirtualName ]
+    Iops:
+      _Type: int
+      _Documentation: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-ec2-blockdev-template.html#cfn-ec2-blockdev-template-iops
+      _Required:
+        Spec::Property: [ VolumeType, io1 ]
+      _Configurable:
+        Spec::Property: [ VolumeType, io1 ]
+      _IntMinValue: 100
+      _IntMaxValue: 32000
+    VolumeSize:
+      _Type: int
+      _Required:
+        Spec::Not:
+          Spec::Property: [ SnapshotId ]
+      _IntMinValue: 1
+      _IntMaxValue: 16384
+    VolumeType:
+      _Type: string
+      _StringEnum: [ io1, gp2, gp3 ]
+      _Required: false
+  VirtualName:
+    _Type: string
+    _Required:
+      Spec::Not:
+        Spec::Property: [ Ebs ]
+    _Configurable:
+      Spec::Not:
+        Spec::Property: [ Ebs ]
+
+Resource::AWS::EC2::NetworkInterface:
+  Properties:
+    Description:
+      _Required: false
+      _Type: string
+    PrivateIpAddress:
+      _Type: Common::IPv4
+      _Required: false
+    PrivateIpAddresses:
+      _Type: list
+      _ListItemSpec:
+        PrivateIpAddress:
+          _Type: Common::IPv4
+          _Required: true
+        Primary:
+          _Type: boolean
+          _Required: true
+      _Required: false
+    SecondaryPrivateIpAddressCount:
+      _Type: int
+      _Required: false
+    SourceDestCheck:
+      _Type: boolean
+      _Required: false

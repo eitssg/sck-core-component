@@ -1,0 +1,94 @@
+AWS::RDS::MySQL:
+  _Type: Component
+
+  Configuration:
+    DbInstance:
+      Pipeline::Security:
+        _Type: Pipeline::IpSecurity
+        _Required: false
+      DeletionPolicy:
+        _Type: string
+        _Required: false
+        _StringEnum: [ Snapshot, Delete ]
+      Properties:
+        AllocatedStorage:
+          _Type: int
+          _IntMinValue: 20    # TODO: handle case of io1 (minimum 100)
+          _IntMaxValue: 16384
+        AllowMajorVersionUpgrade:
+          _Type: boolean
+          _Required: false
+        AutoMinorVersionUpgrade:
+          _Type: boolean
+          _Required: false
+        BackupRetentionPeriod:
+          _Type: int
+          _Required: false
+          _IntMinValue: 0
+          _IntMaxValue: 35
+        CharacterSetName:
+          _Type: string
+          _Required: false
+        DBInstanceClass:
+          _Type: string
+          _StringRegex: 'db\..*'
+        DBName:
+          _Type: string
+          _Required: false
+          _StringLength: 1-64
+        EngineVersion:
+          _Type: string
+          _Required: false
+          _StringRegex: '([0-9]+)\.([0-9]+)\.([0-9]+)'
+        Iops:
+          _Type: int
+          _IntMinValue: 1000
+          _Required:
+            Spec::Property: [ StorageType, io1 ]
+        MasterUsername:
+          _Type: string
+          _StringLength: 1-16
+          _StringRegex: '[a-zA-Z][a-zA-Z0-9]*'
+        MonitoringInterval:
+          _Type: int
+          _Required: false
+          _IntEnum: [ 0, 1, 5, 10, 15, 30, 60 ]
+        MultiAZ:
+          _Type: boolean
+          _Required: false
+        Port:
+          _Type: int
+          _Required: false
+          _IntMinValue: 1150
+          _IntMaxValue: 65535
+        PreferredBackupWindow:
+          _Type: string
+          _Required: false
+          _StringRegex: '[0-2][0-9]:[0-5][0-9]-[0-2][0-9]:[0-5][0-9]'
+        PreferredMaintenanceWindow:
+          _Type: string
+          _Required: false
+          _StringRegex: '(Mon|Tue|Wed|Thu|Fri|Sat|Sun):[0-2][0-9]:[0-5][0-9]-(Mon|Tue|Wed|Thu|Fri|Sat|Sun):[0-2][0-9]:[0-5][0-9]'
+        StorageType:
+          _Type: string
+          _Required: false
+          _StringEnum: [ gp2, gp3, io1 ]
+        DBSnapshotIdentifier:
+          _Type: string
+          _Required: false
+        CACertificateIdentifier:
+          _Type: string
+          _Required: false
+
+    ParameterGroup:
+      _Required: false
+      _Type: AWS::RDS::DBParameterGroup
+
+    OptionGroup:
+      _Required: false
+      _Type: AWS::RDS::OptionGroup
+
+    LogGroups:
+      _KeyCardinality: 0+
+      _KeyEnum: [ AuditLogGroup, ErrorLogGroup, GeneralLogGroup, SlowQueryLogGroup ]
+      _Type: Resource::AWS::Logs::LogGroup

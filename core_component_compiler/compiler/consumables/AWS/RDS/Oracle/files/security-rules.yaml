@@ -1,0 +1,50 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::RDS::Oracle - {{ component_name }} - security rules
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  ResourcesStackName:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+  Stage:
+    Type: String
+    Default: "final"
+
+Conditions:
+  ResourcesExist: { "Fn::Not": [ "Fn::Equals": [ Ref: ResourcesStackName, "" ] ] }
+
+Resources:
+  DefaultImport:
+    Metadata:
+      DefaultImport:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:DefaultExport"
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+  # == DB security rules ==
+  {% for rule in app[component_name].Configuration.DbInstance | ip_rules %}
+  IpRule{{ loop.index }}:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "{{ rule.Description }}"
+      GroupId:
+        Fn::ImportValue:
+          Fn::Sub: ${SecurityStackName}:SecurityGroupId
+      IpProtocol: {{ rule.Protocol }}
+      FromPort: {{ rule.FromPort }}
+      ToPort: {{ rule.ToPort }}
+      {% if rule.Type == 'cidr' %}
+      CidrIp: "{{ rule.Value }}"
+      {% else %}
+      SourceSecurityGroupId:
+        Fn::ImportValue: "{{ rule.Value }}"
+      {% endif %}
+
+  {% endfor %}

@@ -1,0 +1,138 @@
+---
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set cluster_instance_id = names.base_build_name_hyphenated | shorten_unique(63, unique_length=10) %}
+{% set component_type = app[component_name].Type %}
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::Redshift::Cluster - {{ component_name }} - resources
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Conditions:
+  KmsKeyExists: { "Fn::Not": [ "Fn::Equals": [ Ref: KmsKeyArn, "" ] ] }
+
+Resources:
+
+  {% set resource = app[component_name].Configuration.RedshiftCluster %}
+  RedshiftCluster:
+    Type: AWS::Redshift::Cluster
+    DeletionPolicy: {{ resource.DeletionPolicy | d('Snapshot') }}
+    Properties:
+      AllowVersionUpgrade: {{ resource.Properties.AllowVersionUpgrade | d('false') }}
+      AutomatedSnapshotRetentionPeriod: {{ resource.Properties.AutomatedSnapshotRetentionPeriod | d('7') }}
+      ClusterIdentifier: "{{ cluster_instance_id }}"
+      {% if 'ParameterGroup' in app[component_name].Configuration %}
+      ClusterParameterGroupName:
+        Ref: ParameterGroup
+      {% endif %}
+      ClusterSubnetGroupName:
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:RedShiftClusterSubnetGroupName"
+      ClusterType: {{ resource.Properties.ClusterType }}
+      ClusterVersion: "1.0"
+#     ClusterVersion: {{ resource.Properties.ClusterVersion | d('1.0') }}
+#     Only one cluster version available right now.
+      DBName: {{ resource.Properties.DBName }}
+      Encrypted: true
+      #TODO: Add support for HSM if required.
+      # HsmClientCertificateIdentifier:
+      #   - Ref: 'AWS::NoValue'
+      # HsmConfigurationIdentifier:
+      #   - Ref: 'AWS::NoValue'
+      IamRoles:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:RoleArn"
+      KmsKeyId:
+        Fn::If:
+          - KmsKeyExists
+          - Ref: KmsKeyArn
+          - Ref: "AWS::NoValue"
+      LoggingProperties:
+        BucketName: {{ context.FilesBucketName }}
+        S3KeyPrefix: files/branch/{{ context.Portfolio }}/{{ context.App }}/{{ context.BranchShortName }}/audit/
+      MasterUsername: {{ resource.Properties.MasterUsername }}
+      MasterUserPassword:
+        {% if 'SnapshotIdentifier' not in resource.Properties %}
+        Fn::Join: ['', ['{{ '{{' }}resolve:secretsmanager:', !Ref RedshiftSecret, ':SecretString:password{{ '}}' }}']]
+        {% else %}
+        TheSecretFromTheSnapshotVersionIsUsed
+        {% endif %}
+      NodeType: {{ resource.Properties.NodeType }}
+      {% if resource.Properties.ClusterType == 'multi-node' %}
+      NumberOfNodes: {{ resource.Properties.NumberOfNodes }}
+      {% endif %}
+      # OwnerAccount is not permitted directly, see snapshot_id.
+      Port: {{ resource.Properties.Port | d(5439) }}  # Default redshift port
+      PreferredMaintenanceWindow: {{ resource.Properties.PreferredMaintenanceWindow | d({ 'Ref': 'AWS::NoValue' }) }}
+      PubliclyAccessible: false
+      # SnapshotClusterIdentifier: {{ resource.Properties.SnapshotClusterIdentifier | d({ 'Ref': 'AWS::NoValue' }) }}
+      {% if 'SnapshotIdentifier' in resource.Properties %}
+      {{ resource.Properties.SnapshotIdentifier | snapshot_id(component_type) | to_yaml | indent(6) }}
+      {% endif %}
+      VpcSecurityGroupIds:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:SecurityGroupId"
+
+  # master password as a secret - only if not restoring from a snapshot
+  {% if 'SnapshotIdentifier' not in resource.Properties %}
+  RedshiftSecret:
+    DeletionPolicy: Retain  # TODO housekeeping cleanup job, long-arc? If no snapshots exist, can delete?
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: "{{ names.base_build_name_hyphenated }}-dbsecret"  # Will have the build number in it, useful for teardown + redeploy of a common branch.
+      Description: "Redshift Cluster master user name, password"
+      KmsKeyId: !Ref KmsKeyArn
+      GenerateSecretString:
+        SecretStringTemplate: "{\"username\": \"{{ resource.Properties.MasterUsername }}\"}"
+        ExcludeUppercase: false
+        IncludeSpace: false
+        PasswordLength: 48
+        ExcludePunctuation: true
+        ExcludeLowercase: false
+        ExcludeNumbers: false
+        GenerateStringKey: "password"
+  {% endif %}
+
+  {% if 'ParameterGroup' in app[component_name].Configuration %}
+  {% set resource = app[component_name].Configuration.ParameterGroup %}
+  ParameterGroup:
+    Type: AWS::Redshift::ClusterParameterGroup
+    Properties:
+      Description: {{ resource.Properties.Description }}
+      ParameterGroupFamily: {{ resource.Properties.ParameterGroupFamily }}
+      Parameters:
+        {{ resource.Properties.Parameters | to_yaml | indent(8) }}
+  {% endif %}
+
+Outputs:
+  RedshiftClusterId:
+    Value:
+      Ref: RedshiftCluster
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:RedshiftClusterId"
+
+  RedshiftClusterEndpoint:
+    Value:
+      Fn::GetAtt: [ RedshiftCluster, Endpoint.Address ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:RedshiftClusterEndpoint"
+
+  RedshiftClusterPort:
+    Value:
+      Fn::GetAtt: [ RedshiftCluster, Endpoint.Port ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:RedshiftClusterPort"
+
+  {% if 'SnapshotIdentifier' not in resource.Properties %}
+  RedshiftSecretId:
+    Value: !Ref RedshiftSecret
+    Export:
+      Name: !Sub "${AWS::StackName}:RedshiftSecretId"
+  {% endif %}

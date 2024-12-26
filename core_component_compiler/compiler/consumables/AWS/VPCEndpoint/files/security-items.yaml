@@ -1,0 +1,33 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::VPCEndpoint - {{ component_name }} - security items
+
+Resources:
+  WaitConditionHandle:
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+  {% set resource = app[component_name].Configuration %}
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: VPCE security group -   {{ component_name }}
+      {% if resource.Properties.VpcId is defined %}
+      VpcId: {{ resource.Properties.VpcId }}
+      {% else %}
+      VpcId:
+        Fn::ImportValue: "core-network-{{ context.Environment }}:ProxyNatDnsVpc:VpcId"
+      {% endif %}
+
+Outputs:
+  DefaultExport:
+    Value:
+      Ref: AWS::StackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DefaultExport"
+
+  SecurityGroupId:
+    Value:
+      Ref: SecurityGroup
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:SecurityGroupId"

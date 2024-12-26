@@ -1,0 +1,309 @@
+AWS::AutoScaleV3:
+  _Type: Component
+
+  Configuration:
+    BakeInstance:
+      _KeyCardinality: 0-1
+      Pipeline::Security:
+        _Type: Pipeline::IpSecurity
+        _Required: false
+      CreationPolicy:
+        _Type: Common::CreationPolicy
+        _Required: false
+      Metadata:
+        _Type: Common::Metadata
+        _Required: false
+      Properties:
+        BlockDeviceMappings:
+          _Type: Resource::AWS::EC2::Instance::BlockDeviceMappings
+          _Required: false
+        ImageId:
+          _Type: Fn::Pipeline::ImageId
+        InstanceType:
+          _Type: string
+        KeyName:
+          _Required: false
+          _Type: string
+
+
+    launchTemplate:
+      Metadata:
+        _Type: Common::Metadata
+        _Required: false
+      Properties:
+        LaunchTemplateData:
+          InstanceType:
+            _Type: string
+            _Required: true
+          ImageId:
+            _Type: Fn::Pipeline::ImageId
+            _Required: false
+          BlockDeviceMappings:
+            _Type: Resource::AWS::EC2::Instance::BlockDeviceMappings
+            _Required: false
+          MetadataOptions:
+            _Type: string
+            _Required: false
+
+
+    AutoScalingGroup:
+      CreationPolicy:
+        _Type: Common::CreationPolicy
+        _Required: false
+      Pipeline::Security:
+        _Type: Pipeline::IpSecurity
+        _Required: false
+      Properties:
+        Cooldown:
+          _Type: int
+          _Required: false
+          _IntMinValue: 0
+          # TODO: find bounds
+        DesiredCapacity:
+          _Type: int
+          _Required: false
+          # TODO: validate value is >= min and <= max
+        HealthCheckGracePeriod:
+          _Type: int
+          _Required: false
+        LaunchConfigurationName:
+          _Type: string
+          _Required: false
+        MaxSize:
+          _Type: int
+          # TODO: validate value is >= min
+        MinSize:
+          _Type: int
+          _IntMinValue: 0
+          # TODO: validate value is <= max
+        LifecycleHookSpecificationList:
+          _Type: list
+          _ListItemSpec:
+            DefaultResult:
+              _Required: false
+              _Type: string
+            HeartbeatTimeout:
+              _Required: false
+              _Type: int
+            LifecycleHookName:
+              _Required: true
+              _Type: string
+            LifecycleTransition:
+              _Required: true
+              _Type: string
+            NotificationMetadata:
+              _Required: false
+              _Type: string
+            NotificationTargetARN:
+              _Required: false
+              _Type: string
+            RoleARN:
+              _Required: false
+              _Type: aws-string
+          _Required: false
+        MetricsCollection:
+          _Warning: This property is deprecated and will not be configurable in the future. Configuring this proprety has no effect. See documentation for more information.
+          _Type: list
+          _Required: false
+          _ListItemType: Resource::AWS::AutoScaling::MetricsCollection
+
+    LoadBalancer:
+      _Required:
+        Spec::Not:
+          Spec::Property: [ NetworkLoadBalancer ]
+      _Configurable:
+        Spec::Not:
+          Spec::Property: [ NetworkLoadBalancer ]
+      Pipeline::Security:
+        _Type: Pipeline::IpSecurity
+        _Required: false
+      Properties:
+        AppCookieStickinessPolicy:
+          _Type: list
+          _Required: false
+          _ListItemSpec:
+            CookieName:
+              _Type: string
+            PolicyName:
+              _Type: string
+        AccessLoggingPolicy:
+          _Required: false
+          EmitInterval:
+            _Required: false
+            _Type: int
+          Enabled:
+            _Required: true
+            _Type: boolean
+          S3BucketName:
+            _Required: true
+            _Type: string
+          S3BucketPrefix:
+            _Required: false
+            # TODO Should always be "files/branch/{{ context.Portfolio }}/{{ context.App }}/{{ context.Branch }}/logs" ? Regex?
+            _Type: string
+        ConnectionDrainingPolicy:
+          _Required: false
+          Enabled:
+            _Type: boolean
+          Timeout:
+            _Type: int
+            _Required: false
+        ConnectionSettings:
+          _Required: false
+          IdleTimeout:
+            _Type: int
+            _IntMinValue: 1
+            _IntMaxValue: 4000
+        HealthCheck:
+          HealthyThreshold:
+            _Type: int
+            _Required: false
+            _IntMinValue: 2
+            _IntMaxValue: 10
+          Interval:
+            _Type: int
+            _Required: false
+            _IntMinValue: 5
+            _IntMaxValue: 300
+          Target:
+            _Type: string
+            _StringRegex: "((TCP|SSL):[0-9]{1,5})|((HTTP|HTTPS):[0-9]{1,5}/.*)"
+          Timeout:
+            _Type: int
+            _Required: false
+            _IntMinValue: 2
+            _IntMaxValue: 60
+          UnhealthyThreshold:
+            _Type: int
+            _Required: false
+            _IntMinValue: 2
+            _IntMaxValue: 10
+        LBCookieStickinessPolicy:
+          _Type: list
+          _Required: false
+          _ListItemSpec:
+            CookieExpirationPeriod:
+              _Type: int
+              _Required: false
+            PolicyName:
+              _Type: string
+        Listeners:
+          _Type: list
+          _ListLength: 1-10
+          _ListItemSpec:
+            InstancePort:
+              _Type: int
+            InstanceProtocol:
+              _Type: string
+              _StringEnum: [ HTTP, HTTPS, TCP, SSL ]
+              _Required: false
+            LoadBalancerPort:
+              _Type: int
+            PolicyNames:
+              _Type: list
+              _Required: false
+              _ListItemType: string
+            Protocol:
+              _Type: string
+              _StringEnum: [ HTTP, HTTPS, TCP, SSL ]
+            SSLCertificateId:
+              _Type: string
+              _Configurable:
+                Spec::Property: [ Protocol, HTTPS ]
+              _Required:
+                Spec::Property: [ Protocol, HTTPS ]
+              _StringRegex: 'arn:aws:acm:.*'
+        Policies:
+          _Type: list
+          _Required: false
+          _ListLength: 0+
+          _ListItemSpec:
+            Attributes:
+              _Type: list
+              _ListLength: 0+
+              _ListItemSpec:
+                Name:
+                  _Type: string
+                Value:
+                  _Type: string
+            InstancePorts:
+              _Type: list
+              _Required: false
+              _ListItemType: int
+            LoadBalancerPorts:
+              _Type: list
+              _Required: false
+              _ListItemType: int
+            PolicyName:
+              _Type: string
+            PolicyType:
+              _Type: string
+        Scheme:
+          _Type: string
+          _StringEnum: [ internal, internet-facing ]
+
+    NetworkLoadBalancer:
+      _Required:
+        Spec::Not:
+          Spec::Property: [ LoadBalancer ]
+      _Configurable:
+        Spec::Not:
+          Spec::Property: [ LoadBalancer ]
+      Properties:
+        Scheme:
+          _Type: string
+          _StringEnum: [ internal, internet-facing ]
+        LoadBalancerAttributes:
+          _Type: list
+          _Required: false
+          _ListItemType: Common::Attributes
+        HttpsRedirect:
+          _Type: string
+          _StringEnum: [ enabled, disabled ]
+
+    Listener:
+      _Required:
+        Spec::Property: [ NetworkLoadBalancer ]
+      _KeyRegex: ".*Listener"
+      _KeyCardinality: 0-10
+      _Type: Resource::AWS::ElasticLoadBalancingV2::Listener::NLB
+      # _Type: Resource::AWS::ElasticLoadBalancingV2::Listener::ALB
+
+    ListenerRule:
+      _Required:
+        Spec::Property: [ NetworkLoadBalancer ]
+      _KeyRegex: '.*ListenerRule'
+      _KeyCardinality: 0-20
+      _Type: Resource::AWS::ElasticLoadBalancingV2::ListenerRule
+
+    TargetGroup:
+      _Required:
+        Spec::Property: [ NetworkLoadBalancer ]
+      _KeyRegex: '.*TargetGroup'
+      _KeyCardinality: 0-10
+      _Type: Resource::AWS::ElasticLoadBalancingV2::TargetGroup::NLB
+      # _Type: Resource::AWS::ElasticLoadBalancingV2::TargetGroup::ALB
+
+    Alarm:
+      _KeyRegex: ".*Alarm"
+      _KeyCardinality: 0-30
+      _Type: Resource::AWS::CloudWatch::Alarm
+
+    LogGroup:
+      _Required: false
+      _Type: Resource::AWS::Logs::LogGroup
+
+    LogGroupMetricFilter:
+      _KeyRegex: ".*LogGroupMetricFilter"
+      _KeyCardinality: 0-20
+      _Type: Resource::AWS::Logs::MetricFilter
+
+    ScalingPolicy:
+      _KeyRegex: '.*ScalingPolicy'
+      _KeyCardinality: 0-20
+      _Type: Resource::AWS::AutoScaling::ScalingPolicy
+
+    ScheduledAction:
+      _KeyRegex: '.*ScheduledAction'
+      _KeyCardinality: 0-20
+      _Type: Resource::AWS::AutoScaling::ScheduledAction

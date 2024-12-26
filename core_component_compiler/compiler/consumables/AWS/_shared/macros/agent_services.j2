@@ -1,0 +1,26 @@
+{% macro agent_services(resource, image_alias, context, mode) %}
+{% if 'win' in image_alias %}
+windows:
+{% if mode == 'bake' %}
+  AmazonSSMAgent:
+    enabled: 'false'
+    ensureRunning: 'false'
+{% else %}
+  AmazonSSMAgent:
+    enabled: 'true'
+    ensureRunning: 'true'
+  AmazonCloudWatchAgent:
+    enabled: 'true'
+    ensureRunning: 'true'
+    files:
+    - 'C:\ProgramData\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.toml'
+{% endif %}
+{% else %}
+sysvinit:
+  awslogs:
+    enabled: 'true'
+    ensureRunning: 'true'
+    files:
+    - "/var/awslogs/etc/awslogs.conf"
+{% endif %}
+{% endmacro %}

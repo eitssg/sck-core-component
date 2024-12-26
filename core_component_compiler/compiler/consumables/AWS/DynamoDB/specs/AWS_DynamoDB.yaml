@@ -1,0 +1,117 @@
+AWS::DynamoDB:
+  _Type: Component
+
+  Configuration:
+    Table:
+      Pipeline::Security:
+        _Type: Pipeline::IamSecurity
+        _Required: false
+        _ListItemSpec:
+          Allow:
+            _ListItemSpec:
+              _StringEnum: [ read, write, delete ]
+      Properties:
+        AttributeDefinitions:
+          _Type: list
+          _ListItemSpec:
+            AttributeName:
+              _Type: string
+              _StringLength: 1-255
+            AttributeType:
+              _Type: string
+              _StringEnum: [ 'B', 'N', 'S' ]
+        BillingMode:
+          _Type: string
+          _Required: false
+          _StringEnum: ['PAY_PER_REQUEST', 'PROVISIONED']
+        GlobalSecondaryIndexes:
+          _Type: list
+          _Required: false
+          _ListLength: 0-5
+          _ListItemSpec:
+            IndexName:
+              _Type: string
+              _StringLength: 3-255
+              _StringRegex: '[a-zA-Z0-9_.-]+'
+            KeySchema:
+              _Type: AWS::DynamoDB::Table::KeySchema
+            Projection:
+              _Type: AWS::DynamoDB::Table::Projection
+            ProvisionedThroughput:
+              _Type: AWS::DynamoDB::Table::ProvisionedThroughput
+              _Required: false
+              # TODO: Required and Configurable if no BakeInstance is specified
+              # _Required:
+              #   Spec::Not:
+              #     Spec::Property: [ '.^.BillingMode', PAY_PER_REQUEST ]
+              # _Configurable:
+              #   Spec::Not:
+              #     Spec::Property: [ '.^.BillingMode', PAY_PER_REQUEST ]
+        KeySchema:
+          _Type: AWS::DynamoDB::Table::KeySchema
+        LocalSecondaryIndexes:
+          _Type: list
+          _Required: false
+          _ListLength: 0-5
+          _ListItemSpec:
+            IndexName:
+              _Type: string
+              _StringLength: 3-255
+              _StringRegex: '[a-zA-Z0-9_.-]+'
+            KeySchema:
+              _Type: AWS::DynamoDB::Table::KeySchema
+            Projection:
+              _Type: AWS::DynamoDB::Table::Projection
+        ProvisionedThroughput:
+          _Type: AWS::DynamoDB::Table::ProvisionedThroughput
+          _Required:
+            Spec::Not:
+              Spec::Property: [ BillingMode, PAY_PER_REQUEST ]
+          _Configurable:
+            Spec::Not:
+              Spec::Property: [ BillingMode, PAY_PER_REQUEST ]
+        StreamSpecification:
+          _Required: false
+          StreamViewType:
+            _Type: string
+            _StringEnum: [ KEYS_ONLY, NEW_IMAGE, OLD_IMAGE, NEW_AND_OLD_IMAGES ]
+        TimeToLiveSpecification:
+          _Required: false
+          AttributeName:
+            _Type: string
+            _StringLength: 1-255
+          Enabled:
+            _Type: boolean
+        TableName:
+          _Type: string
+          _Required: false
+
+AWS::DynamoDB::Table::KeySchema:
+  _Type: list
+  _ListLength: 1+
+  _ListItemSpec:
+    AttributeName:
+      _Type: string
+      _StringLength: 1-255
+    KeyType:
+      _Type: string
+      _StringEnum: [ HASH, RANGE ]
+
+AWS::DynamoDB::Table::Projection:
+  NonKeyAttributes:
+    _Type: list
+    _Required: false
+    _ListItemType: string
+  ProjectionType:
+    _Type: string
+    _StringEnum: [ KEYS_ONLY, INCLUDE, ALL ]
+
+AWS::DynamoDB::Table::ProvisionedThroughput:
+  ReadCapacityUnits:
+    _Type: int
+    _IntMinValue: 1
+    _IntMaxValue: 1000
+  WriteCapacityUnits:
+    _Type: int
+    _IntMinValue: 1
+    _IntMaxValue: 1000

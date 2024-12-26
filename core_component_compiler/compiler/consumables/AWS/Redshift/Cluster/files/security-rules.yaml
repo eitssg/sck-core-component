@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::Redshift::Cluster - {{ component_name }} - security rules
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  ResourcesStackName:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+  Stage:
+    Type: String
+    Default: "final"
+
+Resources:
+  DefaultImport:
+    Metadata:
+      DefaultImport:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:DefaultExport"
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+  RoleBasePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: base-{{ context.Build }}
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Allow redshift commands from build (git) or shared files in s3
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource:
+              - "arn:aws:s3:::{{ context.FilesBucketName }}/{{ context.SharedFilesPrefix }}/*"
+              - "arn:aws:s3:::{{ context.FilesBucketName }}/{{ context.BuildFilesPrefix }}/*"
+          {% if 'DefaultIamPolicyStatements' in context %}
+          # Default IAM policy statements
+          {{ context.DefaultIamPolicyStatements | to_yaml | indent(10) }}
+          {% endif %}
+      Roles:
+        - Fn::ImportValue:
+            Fn::Sub: ${SecurityStackName}:RoleName
+
+  # == Cluster security rules ==
+  {% for rule in app[component_name].Configuration.RedshiftCluster | ip_rules %}
+  IpRule{{ loop.index }}:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "{{ rule.Description }}"
+      GroupId:
+        Fn::ImportValue:
+          Fn::Sub: ${SecurityStackName}:SecurityGroupId
+      IpProtocol: {{ rule.Protocol }}
+      FromPort: {{ rule.FromPort }}
+      ToPort: {{ rule.ToPort }}
+      {% if rule.Type == 'cidr' %}
+      CidrIp: "{{ rule.Value }}"
+      {% else %}
+      SourceSecurityGroupId:
+        Fn::ImportValue: "{{ rule.Value }}"
+      {% endif %}
+
+  {% endfor %}

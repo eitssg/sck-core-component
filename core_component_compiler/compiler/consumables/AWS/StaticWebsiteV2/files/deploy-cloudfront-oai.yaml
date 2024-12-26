@@ -1,0 +1,27 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::StaticWebsite - {{ component_name }} - cloudfront OAI
+
+Resources:
+  CloudFrontOriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: S3 Origin Access Identity
+
+Outputs:
+
+  CloudFrontOAI:
+    Value:
+      Ref: CloudFrontOriginAccessIdentity
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:CloudFrontOAI"
+
+  S3CanonicalUser:
+    Value:
+      Fn::GetAtt: [ CloudFrontOriginAccessIdentity, S3CanonicalUserId ]
+    Export: 
+      Name:
+        Fn::Sub: "${AWS::StackName}:S3CanonicalUser"

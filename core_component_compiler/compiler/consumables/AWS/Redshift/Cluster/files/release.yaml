@@ -1,0 +1,43 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::Redshift::Cluster - {{ component_name }} - release
+
+Resources:
+
+  ReleaseDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId:
+        Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:HostedZoneId
+      Name:
+        Fn::Sub:
+          - "{{ names.release_dns_prefix }}.${RegionalHostedZoneName}"
+          - RegionalHostedZoneName:
+              Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:RegionalHostedZoneName
+      ResourceRecords:
+        - Fn::ImportValue:
+            Fn::Sub: "{{ names.pointers_stack_name }}:DeploymentDns"
+      Type: CNAME
+      TTL: 60
+
+Outputs:
+  Build:
+    Value: "{{ context.Build }}"
+
+  BaseStackName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "{{ names.pointers_stack_name }}:BaseStackName"
+
+  PointersStackName:
+    Value: "{{ names.pointers_stack_name }}"
+
+  ResourcesStackName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "{{ names.pointers_stack_name }}:ResourcesStackName"
+
+  ReleaseDns:
+    Value:
+      Ref: ReleaseDnsRecord

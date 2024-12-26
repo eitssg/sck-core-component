@@ -1,0 +1,26 @@
+Resource::AWS::Logs::LogGroup:
+  DeletionPolicy:
+      _Type: string
+      _StringEnum: [ Delete, Retain, Snapshot ]
+      _Required: false
+  Properties:
+    RetentionInDays:
+      _Type: int
+      _IntEnum: [ 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653 ]
+
+Resource::AWS::Logs::MetricFilter:
+  Properties:
+    FilterPattern:
+      _Type: aws-string
+    MetricTransformations:
+      _Type: list
+      _ListLength: 1
+      _ListItemSpec:
+        DefaultValue:
+          _Required: false
+          _Type: float
+        MetricName:
+          _Type: string
+        MetricValue:
+          _Required: true
+          _Type: string

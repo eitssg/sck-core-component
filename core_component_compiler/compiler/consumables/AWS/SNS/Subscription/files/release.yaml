@@ -1,0 +1,29 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+Description: AWS::SNS::Subscription - {{ component_name }} - release
+
+Conditions:
+
+  Never: !Equals [ "1", "2" ]
+
+Resources:
+
+  NoResources:
+    Condition: Never
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+
+Outputs:
+
+  Build:
+    Value: "{{ context.Build }}"
+
+  BaseStackName:
+    Value:
+      Fn::ImportValue: "{{ names.pointers_stack_name }}:BaseStackName"
+
+  PointersStackName:
+    Value: "{{ names.pointers_stack_name }}"
+
+  ResourcesStackName:
+    Value:
+      Fn::ImportValue: "{{ names.pointers_stack_name }}:ResourcesStackName"

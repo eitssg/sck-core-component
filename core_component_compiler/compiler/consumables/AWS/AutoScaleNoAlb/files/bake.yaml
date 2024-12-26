@@ -1,0 +1,139 @@
+{% if 'BakeInstance' in app[component_name].Configuration %}
+
+{% from "AWS/_shared/macros/agent_files.j2" import agent_files with context %}
+{% from "AWS/_shared/macros/agent_sources.j2" import agent_sources with context %}
+{% from "AWS/_shared/macros/agent_commands.j2" import agent_commands with context %}
+{% from "AWS/_shared/macros/agent_packages.j2" import agent_packages with context %}
+{% from "AWS/_shared/macros/agent_services.j2" import agent_services with context %}
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% macro include_userdata(image_name) %}
+{% if 'amazon-linux' in image_name or 'rhel' in image_name or 'centos' in image_name %}
+{% include "AWS/AutoScaleNoAlb/userdata/bake-linux.sh" %}
+{% elif 'win' in image_name %}
+{% include "AWS/AutoScaleNoAlb/userdata/bake-windows.ps1" %}
+{% else %}
+{{ raise("Unknown image '" + image_name + "', cannot load userdata") }}
+{% endif %}
+{% endmacro %}
+
+{% set config = app[component_name].Configuration %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::AutoScaleV2 - {{ component_name }} - bake
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Resources:
+  # Bake instance
+  {% set resource = app[component_name].Configuration.BakeInstance %}
+  {% set image_alias = resource.Properties.ImageId | image_name %}
+  BakeInstance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          default:
+            - pre
+            - agents
+            {% if 'config' in resource | extract('Metadata."AWS::CloudFormation::Init"', {}) %}
+            - config
+            {% endif %}
+            {% if 'win' in image_alias %}
+            - finalise
+            {% endif %}
+        pre:
+          commands:
+            00-init:
+              command: echo "Performing pre config"
+            {% if 'rhel-7' in image_alias %}
+            01-enable-rhel7-repos:
+              command: "yum-config-manager --enable rhui-REGION-rhel-server-extras && yum-config-manager --enable rhui-REGION-rhel-server-releases && yum clean all"
+            {% endif %}
+        agents:
+          packages:
+            {{ agent_packages(resource, image_alias, context) | indent(12) }}
+          files:
+            {{ agent_files(resource, component_name, image_alias, context, 'bake') | indent(12) }}
+          sources:
+            {{ agent_sources(resource, context) | indent(12) }}
+          commands:
+            {{ agent_commands(resource, image_alias, context, 'bake') | indent(12) }}
+          services:
+            {{ agent_services(resource, image_alias, context, 'bake') | indent(12) }}
+        finalise:
+          files:
+            C:\pipeline\bin\sysprep.ps1:
+              source: "{{ context.FilesBucketUrl }}/{{ context.BuildFilesPrefix }}/{{ component_name }}/userfiles/sysprep/sysprep.ps1"
+          commands:
+            00-run-sysprep:
+              command: 'powershell.exe -Command "cd C:\pipeline\bin; .\sysprep.ps1"'
+              waitAfterCompletion: '0'
+            01-signal-success:
+              command: !Sub 'cfn-signal.exe -e 0 --region ${AWS::Region} --stack ${AWS::StackId} --resource BakeInstance'
+              waitAfterCompletion: '0'
+        {% if 'Metadata' in resource %}
+        {% if "AWS::CloudFormation::Init" in resource.Metadata %}
+        {{ resource | extract('Metadata."AWS::CloudFormation::Init"', {}) | process_cfn_init | to_yaml | indent(8) }}
+        {% endif %}
+        {% endif %}
+      AWS::CloudFormation::Authentication:
+        S3AccessAuth:
+          type: s3
+          roleName:
+            Fn::ImportValue:
+              Fn::Sub: "${SecurityStackName}:RoleName"
+          buckets:
+            - "{{ context.FilesBucketName }}"
+    CreationPolicy:
+      ResourceSignal:
+        Count: {{ resource | extract('CreationPolicy.ResourceSignal.Count', '1') }}
+        {% if 'win' in image_alias %}
+        Timeout: {{ resource | extract('CreationPolicy.ResourceSignal.Timeout', 'PT60M') }}
+        {% else %}
+        Timeout: {{ resource | extract('CreationPolicy.ResourceSignal.Timeout', 'PT15M') }}
+        {% endif %}
+    Properties:
+      {% if 'BlockDeviceMappings' in resource.Properties %}
+      BlockDeviceMappings:
+        {{ resource.Properties.BlockDeviceMappings | ebs_encrypt | to_yaml | indent(8) }}
+      {% endif %}
+      IamInstanceProfile:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:InstanceProfileName"
+      ImageId: "{{ resource.Properties.ImageId | image_id }}"
+      InstanceInitiatedShutdownBehavior: stop
+      InstanceType: "{{ resource.Properties.InstanceType }}"
+      {% if 'KeyName' in resource.Properties %}
+      KeyName: {{ resource.Properties.KeyName }}
+      {% endif %}
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:SecurityGroupId"
+        {% for rule in resource | ip_rules(source_types=['sg-attachment']) %}
+        - Fn::ImportValue: "{{ rule.Value }}"   # {{ rule.Description }}
+        {% endfor %}
+      SubnetId:
+        {% if (resource.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['app'] }}1Id"
+        {% else %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
+        {% endif %}
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            {{ include_userdata(image_alias) | indent(12) }}
+
+Outputs:
+  InstanceId:
+    Value:
+      Ref: BakeInstance
+
+{% else %}
+# This application did not specify a BakeInstance.
+{% endif %}

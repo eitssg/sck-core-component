@@ -1,0 +1,3 @@
+{% set enable_persistence = False %}
+{% set resources_stack_name = [ context.Portfolio, context.App, context.BranchShortName, component_name, "resources" ] | join("-") %}
+{% include "AWS/_shared/actions/deploy-persist.actions" %}

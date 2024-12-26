@@ -1,0 +1,29 @@
+AWS::NetworkLoadBalancer:
+  _Type: Component
+
+  Configuration:
+
+    NetworkLoadBalancer:
+      Properties:
+        Scheme:
+          _Type: string
+          _StringEnum: [ internal, internet-facing ]
+        LoadBalancerAttributes:
+          _Type: list
+          _Required: false
+          _ListItemType: Common::Attributes
+        HttpsRedirect:
+          _Type: string
+          _StringEnum: [ enabled, disabled ]
+
+    Listener:
+      _KeyRegex: ".*Listener"
+      _KeyCardinality: 0-10
+      _Type: Resource::AWS::ElasticLoadBalancingV2::Listener::NLB
+
+    TargetGroup:
+      _Required:
+        Spec::Property: [ NetworkLoadBalancer ]
+      _KeyRegex: '.*TargetGroup'
+      _KeyCardinality: 0-10
+      _Type: Resource::AWS::ElasticLoadBalancingV2::TargetGroup::NLB

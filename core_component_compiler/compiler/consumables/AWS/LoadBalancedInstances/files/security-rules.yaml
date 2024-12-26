@@ -1,0 +1,195 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::LoadBalancedInstances - {{ component_name }} - security rules
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  ResourcesStackName:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+  Stage:
+    Type: String
+    Default: "final"
+
+Conditions:
+  KmsKeyExists: { "Fn::Not": [ "Fn::Equals": [ Ref: KmsKeyArn, "" ] ] }
+
+Resources:
+  DefaultImport:
+    Metadata:
+      DefaultImport:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:DefaultExport"
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+  # LB security group to instance security group on TCP:*
+  IpRuleLbSecurityGroupToSecurityGroupOnAll:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "Allow all from load balancer"
+      GroupId:
+        Fn::ImportValue:
+          Fn::Sub: ${SecurityStackName}:SecurityGroupId
+      IpProtocol: TCP
+      FromPort: 0
+      ToPort: 65535
+      SourceSecurityGroupId:
+        Fn::ImportValue:
+          Fn::Sub: ${SecurityStackName}:LbSecurityGroupId
+
+  # Base KMS key policy
+  KmsBasePolicy:
+    Type: AWS::IAM::Policy
+    Condition: KmsKeyExists
+    Properties:
+      PolicyName: base-kms-{{ context.Build }}
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Allow use of the KMS key
+          - Effect: Allow
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:ReEncrypt*
+            Resource:
+              - Ref: KmsKeyArn
+      Roles:
+        - Fn::ImportValue:
+            Fn::Sub: ${SecurityStackName}:RoleName
+
+  # Default instance role policy
+  RoleBasePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: base-{{ context.Build }}
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Allow instances to put metrics into CloudWatch
+          - Effect: Allow
+            Action:
+              - cloudwatch:PutMetricData
+            Resource:
+              - "*"
+
+          # Allow instances to describe resources
+          - Effect: Allow
+            Action:
+              - ec2:Describe*
+            Resource:
+              - "*"
+
+          # Allow Ansible aws_s3 module to perform HEAD Operation at the bucket level
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+            Resource:
+              - "arn:aws:s3:::{{ context.FilesBucketName }}"
+
+          # Allow instances to retrieve files
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource:
+              - "arn:aws:s3:::{{ context.FilesBucketName }}/{{ context.SharedFilesPrefix }}/*"
+              - "arn:aws:s3:::{{ context.FilesBucketName }}/{{ context.BuildFilesPrefix }}/*"
+
+          # Allow instances to write to CloudWatch Logs
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:DescribeLogStreams
+            Resource:
+              - Fn::Sub: "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:{{ names.log_group_name }}"
+              - Fn::Sub: "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:{{ names.log_group_name }}:*"
+
+          # Allow instances to DescribeMountTargets in EFS
+          - Effect: Allow
+            Action:
+              - elasticfilesystem:DescribeMountTargets
+            Resource:
+              # TODO Should restrict to app by tags? What about mounting another app's EFS FileSystem?
+              - Fn::Sub: "arn:aws:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/*"
+
+          # Allow instances to access certain SSM PS paths
+          # See https://docs.aws.amazon.com/systems-manager/latest/userguide/sysman-paramstore-su-organize.html
+          - Effect: Allow
+            Action:
+              - ssm:GetParameter
+              - ssm:GetParametersByPath
+              - ssm:PutParameter
+            Resource:
+              - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/{{ context.Portfolio }}/{{ context.App }}/*"
+
+          # Secrets Manager
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource:
+              - Fn::Sub: "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:{{ context.Portfolio }}-{{ context.App }}-*"
+
+          {% if 'DefaultIamPolicyStatements' in context %}
+          # Default IAM policy statements
+          {{ context.DefaultIamPolicyStatements | to_yaml | indent(10) }}
+          {% endif %}
+
+      Roles:
+        - Fn::ImportValue:
+            Fn::Sub: ${SecurityStackName}:RoleName
+
+  # == Load balancer security rules ==
+  {% for rule in app[component_name].Configuration.LoadBalancer | ip_rules %}
+  LbIpRule{{ loop.index }}:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "{{ rule.Description }}"
+      GroupId:
+        Fn::ImportValue:
+          Fn::Sub: ${SecurityStackName}:LbSecurityGroupId
+      IpProtocol: {{ rule.Protocol }}
+      FromPort: {{ rule.FromPort }}
+      ToPort: {{ rule.ToPort }}
+      {% if rule.Type == 'cidr' %}
+      CidrIp: "{{ rule.Value }}"
+      {% else %}
+      SourceSecurityGroupId:
+        Fn::ImportValue: "{{ rule.Value }}"
+      {% endif %}
+
+  {% endfor %}
+
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('Instance') %}
+  # == Instance '{{ resource_name }}' security rules ==
+  {% for rule in resource | ip_rules %}
+  {{ resource_name }}IpRule{{ loop.index }}:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "{{ rule.Description }}"
+      GroupId:
+        Fn::ImportValue:
+          Fn::Sub: ${SecurityStackName}:SecurityGroupId
+      IpProtocol: {{ rule.Protocol }}
+      FromPort: {{ rule.FromPort }}
+      ToPort: {{ rule.ToPort }}
+      {% if rule.Type == 'cidr' %}
+      CidrIp: "{{ rule.Value }}"
+      {% else %}
+      SourceSecurityGroupId:
+        Fn::ImportValue: "{{ rule.Value }}"
+      {% endif %}
+
+  {% endfor %}
+  {% endfor %}

@@ -1,0 +1,373 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set security_rules = app[component_name].Configuration.Distribution | ip_rules(source_types=['cidr'], source_only=True) %}
+{% set deployment_dns_prefix = [ component_name, context.BranchShortName ~ "-deploy", context.App, context.Portfolio ] | join(".") %}
+{% set resource = app[component_name].Configuration.Distribution %}
+{% set resource_properties = app[component_name].Configuration.Distribution.Properties %}
+{% set resource_distribution = app[component_name].Configuration.Distribution %}
+
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::StaticWebsite - {{ component_name }} - cloudfront
+
+Parameters:
+  BucketStackName:
+    Type: String
+
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+  StrippedRegionalHostedZoneName:
+    Type: String
+
+  StrippedPublicOnlyRegionalHostedZoneName:
+    Type: String
+
+Resources:
+
+  # File bucket access policy
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Fn::ImportValue:
+          Fn::Sub: "${BucketStackName}:FileBucketName"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Id: CloudFrontAccess
+        Statement:
+          - Sid: CloudFront Access
+            Effect: Allow
+            Principal:
+              CanonicalUser:
+                Fn::GetAtt: [ CloudFrontOriginAccessIdentity, S3CanonicalUserId ]
+            Action: s3:GetObject
+            Resource:
+              Fn::Sub:
+                - "${BucketArn}/*"
+                - BucketArn:
+                    Fn::ImportValue:
+                      Fn::Sub: "${BucketStackName}:FileBucketArn"
+
+  # Additional Buckets Policies
+  {% if 'AdditionalBucketsEnable' in resource.Properties.DistributionConfig and resource.Properties.DistributionConfig.AdditionalBucketsEnable == True %}
+  {% for bucket in resource.Properties.DistributionConfig.AdditionalBuckets | ensure_list %}
+  {{ bucket + 'AddonBucketPolicy' }}:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Fn::ImportValue:
+          Fn::Sub: "${BucketStackName}:{{ bucket + 'AddonBucketName' }}"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Id: CloudFrontAccess
+        Statement:
+          - Sid: CloudFront Access
+            Effect: Allow
+            Principal:
+              CanonicalUser:
+                Fn::GetAtt: [ CloudFrontOriginAccessIdentity, S3CanonicalUserId ]
+            Action: s3:GetObject
+            Resource:
+              Fn::Sub:
+                - "${BucketArn}/*"
+                - BucketArn:
+                    Fn::ImportValue:
+                      Fn::Sub: "${BucketStackName}:{{ bucket + 'AddonBucketArn' }}"
+
+  {% endfor %}
+  {% endif %}
+
+  CloudFrontOriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: S3 Origin Access Identity
+
+  # Additional Buckets CF OAC
+  {% if 'AdditionalBucketsEnable' in resource.Properties.DistributionConfig and resource.Properties.DistributionConfig.AdditionalBucketsEnable == True %}
+  {% for bucket in resource.Properties.DistributionConfig.AdditionalBuckets | ensure_list %}
+  {{ bucket + 'AddonCloudFrontOriginAccessControl' }}:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name:
+          Fn::Sub:
+            - "${AddonBucketName}.s3-${AWS::Region}-OAC"
+            - AddonBucketName: {{ bucket }}
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  {% endfor %}
+  {% endif %}
+
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        # Aliases:
+        #   # Deployment DNS aliases
+        #   #- Fn::Sub: "{{ deployment_dns_prefix }}.${StrippedRegionalHostedZoneName}"
+        #   - Fn::Sub: "{{ deployment_dns_prefix }}.${StrippedPublicOnlyRegionalHostedZoneName}"
+        #   # Release DNS aliases
+        #   #- Fn::Sub: "{{ names.release_dns_prefix }}.${StrippedRegionalHostedZoneName}"
+        #   - Fn::Sub: "{{ names.release_dns_prefix }}.${StrippedPublicOnlyRegionalHostedZoneName}"
+        #   # User-defined aliases
+        {% if 'Aliases' in resource.Properties.DistributionConfig %}
+        Aliases:
+        {% endif %}
+        {% for alias in resource.Properties.DistributionConfig.Aliases | ensure_list %}
+          - {{ alias }}
+        {% endfor %}
+        {% if 'CacheBehaviors' in resource.Properties.DistributionConfig %}
+        CacheBehaviors:
+          {{ resource.Properties.DistributionConfig.CacheBehaviors | to_yaml | indent(10) }}
+        {% endif %}
+        Comment:
+          Fn::Sub: "AWS::StaticWebsite - ${AWS::StackName}"
+        {% if 'CustomErrorResponses' in resource.Properties.DistributionConfig %}
+        CustomErrorResponses:
+          {{ resource.Properties.DistributionConfig.CustomErrorResponses | to_yaml | indent(10) }}
+        {% endif %}
+        DefaultCacheBehavior:
+          {{ resource.Properties.DistributionConfig.DefaultCacheBehavior | to_yaml | indent(10) }}
+          {% if 'DefaultCacheBehaviorTrustedKeyGroupsRef' in resource.Properties.DistributionConfig %}
+          TrustedKeyGroups:
+            {% if 'DefaultCacheBehaviorTrustedKeyGroupsRef' in resource.Properties.DistributionConfig %}
+            {% for trusted_group_id in resource.Properties.DistributionConfig.DefaultCacheBehaviorTrustedKeyGroupsRef | ensure_list %}
+            - {{trusted_group_id}}
+            {% endfor %}
+            {% endif %}
+          {% endif %}
+        DefaultRootObject: "{{ resource.Properties.DistributionConfig.DefaultRootObject | d('index.html') }}"
+        Enabled: true
+        HttpVersion: http2
+        Logging:
+          Bucket:
+            Fn::ImportValue:
+              Fn::Sub: "${BucketStackName}:LogBucketDomainName"
+          IncludeCookies: false
+        Origins:
+          - DomainName:
+              Fn::Sub:
+                - "${FileBucketName}.s3-${AWS::Region}.amazonaws.com"
+                - FileBucketName:
+                    Fn::ImportValue:
+                      Fn::Sub: "${BucketStackName}:FileBucketName"
+            Id: bucket
+            S3OriginConfig:
+              OriginAccessIdentity:
+                Fn::Sub: "origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}"
+        {% if 'AdditionalBucketsEnable' in resource.Properties.DistributionConfig and resource.Properties.DistributionConfig.AdditionalBucketsEnable == True %}
+        {% for current_bucket in resource.Properties.DistributionConfig.AdditionalBuckets | ensure_list %}
+        {% set bucket_index = loop.index0 %}
+          - DomainName:
+              Fn::Sub:
+                - "${FileBucketName}.s3-${AWS::Region}.amazonaws.com"
+                - FileBucketName:
+                   Fn::ImportValue:
+                    Fn::Sub: "${BucketStackName}:{{ current_bucket + 'AddonBucketName' }}"
+            Id: {{ current_bucket }}
+            S3OriginConfig:
+              OriginAccessIdentity:
+                Fn::Sub: "origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}"
+        {% endfor %}
+        {% endif %}
+
+         {% if 'TargetSecondaryOrigin' in resource.Properties.DistributionConfig %}
+           {% for TargetSecondaryOrigin in resource.Properties.DistributionConfig.TargetSecondaryOrigin | ensure_list %}
+
+          - DomainName: {{ TargetSecondaryOrigin.DomainName }}
+            Id: {{ TargetSecondaryOrigin.Id }}
+            CustomOriginConfig:
+              OriginProtocolPolicy: {{ TargetSecondaryOrigin.Type }}
+              {% endfor %}
+          {% endif %}
+
+        PriceClass: "{{ resource.Properties.DistributionConfig.PriceClass | d('PriceClass_All') }}"
+        {% if 'AcmCertificateArn' in resource | extract('Properties.DistributionConfig.ViewerCertificate', {}) %}
+        ViewerCertificate:
+          AcmCertificateArn: "{{ resource.Properties.DistributionConfig.ViewerCertificate.AcmCertificateArn }}"
+          SslSupportMethod: sni-only
+          {% if 'MinimumProtocolVersion' in resource | extract('Properties.DistributionConfig.ViewerCertificate', {}) %}
+          MinimumProtocolVersion: "{{ resource.Properties.DistributionConfig.ViewerCertificate.MinimumProtocolVersion }}"
+          {% endif %}
+        {% endif %}
+        {% if 'MinimumProtocolVersion' in resource | extract('Properties.DistributionConfig.MinimumProtocolVersion', {}) %}
+        MinimumProtocolVersion: "{{ resource.DistributionConfig.MinimumProtocolVersion }}"
+        {% endif %}
+        {% if (security_rules | length > 0 and 'WafEnable' not in resource.Properties.DistributionConfig) or ( security_rules | length > 0 and 'WafEnable' in resource.Properties.DistributionConfig and resource.Properties.DistributionConfig.WafEnable != false)%}
+        WebACLId:
+          Ref: WafWebAcl
+        {% endif %}
+      # Tags added here to work around CloudFormation-to-CloudFront tag propagation issue
+      Tags:
+        {{ 'branch' | aws_tags | to_yaml | indent(8) }}
+
+
+  {% if security_rules | length > 0 %}
+  WafWebAcl:
+    Type: AWS::WAF::WebACL
+    Properties:
+      DefaultAction:
+        {% if 'DefaulWafWebAclBlock' in resource and resource.DefaulWafWebAclBlock == false %}
+        Type: ALLOW
+        {% else %}
+        Type: BLOCK
+        {% endif %}
+      MetricName: WhitelistAcl
+      Name: WhitelistAcl
+      Rules:
+        - Action:
+            Type: ALLOW
+          Priority: 1
+          RuleId:
+            Ref: WafRule
+
+  WafRule:
+    Type: AWS::WAF::Rule
+    Properties:
+      Name: WhitelistRule
+      MetricName: WhitelistRule
+      Predicates:
+        - DataId:
+            Ref: WafIpSet
+          Negated: false
+          Type: IPMatch
+
+  WafIpSet:
+    Type: AWS::WAF::IPSet
+    Properties:
+      IPSetDescriptors:
+        {% for rule in security_rules %}
+        - Type: IPV4
+          Value: "{{ rule.Value }}"   # {{ rule.Description }}
+        {% endfor %}
+      Name: WhitelistIpSet
+  {% endif %}
+
+  # FIXME - duplicate resource - was this supposed to be for the logs bucket?
+  # BucketPolicy:
+  #   Type: AWS::S3::BucketPolicy
+  #   Properties:
+  #     Bucket:
+  #       Fn::ImportValue:
+  #         Fn::Sub: "${BucketStackName}:FileBucketName"
+  #     PolicyDocument:
+  #       Version: "2012-10-17"
+  #       Id: CloudFrontAccess
+  #       Statement:
+  #         - Sid: CloudFront Access
+  #           Effect: Allow
+  #           Principal:
+  #             CanonicalUser:
+  #               Fn::GetAtt: [ CloudFrontOriginAccessIdentity, S3CanonicalUserId ]
+  #           Action: s3:GetObject
+  #           Resource:
+  #             Fn::Sub:
+  #               - "${FileBucketArn}/*"
+  #               - FileBucketArn:
+  #                   Fn::ImportValue:
+  #                     Fn::Sub: "${BucketStackName}:FileBucketArn"
+
+  # # Private deployment DNS record
+  # PrivateDeploymentDnsRecord:
+  #   Type: AWS::Route53::RecordSet
+  #   Properties:
+  #     AliasTarget:
+  #       DNSName:
+  #         Fn::GetAtt: [ Distribution, DomainName ]
+  #       EvaluateTargetHealth: false
+  #       HostedZoneId: Z2FDTNDATAQYW2    # CloudFront
+  #     Type: A
+  #     HostedZoneId:
+  #       Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:HostedZoneId
+  #     Name:
+  #       Fn::Sub:
+  #         - "{{ deployment_dns_prefix }}.${RegionalHostedZoneName}"
+  #         - RegionalHostedZoneName:
+  #             Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:RegionalHostedZoneName
+
+  # Public deployment DNS record
+  PublicDeploymentDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName:
+          Fn::GetAtt: [ Distribution, DomainName ]
+        EvaluateTargetHealth: false
+        HostedZoneId: Z2FDTNDATAQYW2    # CloudFront
+      Type: A
+      HostedZoneId:
+        Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:PublicOnlyHostedZoneId
+      Name:
+        Fn::Sub:
+          - "{{ deployment_dns_prefix }}.${PublicOnlyRegionalHostedZoneName}"
+          - PublicOnlyRegionalHostedZoneName:
+              Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:PublicOnlyRegionalHostedZoneName
+
+{% if 'LocalHostName' in resource.Properties.DistributionConfig %}
+    {% for LocalHostName in resource.Properties.DistributionConfig.LocalHostName | ensure_list %}
+    # Public deployment DNS record For {{ LocalHostName }}
+  PublicDeploymentDnsRecordLocalhost{{ loop.index }}:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName:
+          Fn::GetAtt: [ Distribution, DomainName ]
+        EvaluateTargetHealth: false
+        HostedZoneId: Z2FDTNDATAQYW2    # CloudFront
+      Type: A
+      HostedZoneId:
+        Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:PublicOnlyHostedZoneId
+      Name:
+        Fn::Sub:
+          - "{{ LocalHostName }}.${PublicOnlyRootHostedZoneName}"
+          - PublicOnlyRootHostedZoneName:
+              Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:PublicOnlyRootHostedZoneName
+
+      {% endfor %}
+
+{% endif %}
+
+Outputs:
+
+  DefaultExport:
+    Value:
+      Ref: AWS::StackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DefaultExport"
+
+  DistributionId:
+    Value:
+      Ref: Distribution
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DisbributionId"
+
+  DistributionDomainName:
+    Value:
+      Fn::GetAtt: [ Distribution, DomainName ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DistributionDomainName"
+
+  # PrivateDeploymentDns:
+  #   Value:
+  #     Ref: PrivateDeploymentDnsRecord
+  #   Export:
+  #     Name:
+  #       Fn::Sub: "${AWS::StackName}:PrivateDeploymentDns"
+
+  PublicDeploymentDns:
+    Value:
+      Ref: PublicDeploymentDnsRecord
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:PublicDeploymentDns"

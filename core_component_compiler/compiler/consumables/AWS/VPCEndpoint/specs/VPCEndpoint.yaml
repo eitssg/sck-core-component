@@ -1,0 +1,68 @@
+AWS::VPCEndpoint:
+  _Type: Component
+
+  Configuration:
+      Properties:
+        PrivateDnsEnabled:
+          _Type: boolean
+          _Required: false
+        SecurityGroupIds:
+          _Type: string
+          _Required: false
+          _ListItemType: Common::Attributes
+        ServiceName:
+          _Type: string
+          _Required: true
+          _ListItemType: Common::Attributes
+        Aliases:
+          _Type: list
+          _Required: false
+          _ListItemType: Common::Attributes
+        SubnetIds:
+          _Type: list
+          _Required: false
+          _ListItemType: string
+        VpcEndpointType:
+          _Type: string
+          _Required: false
+          _ListItemType: Common::Attributes
+        VpcId:
+          _Type: string
+          _Required: false
+          _ListItemType: Common::Attributes
+        Pipeline::Security:
+          _Required: false
+          _Type: Pipeline::IpSecurity
+
+AWS::VPCEndpointRecord:
+  _Type: Component
+
+  Configuration:
+      Properties:
+        HostedZoneId:
+          _Type: string
+          _Required: false
+          _ListItemType: Common::Attributes
+        RecordSets:
+          _Type: string
+          _Required: false
+          _ListItemType: Common::Attributes
+        Name:
+          _Type: string
+          _Required: false
+          _ListItemType: Common::Attributes
+        Type:
+          _Type: string
+          _Required: false
+          _ListItemType: Common::Attributes
+        ResourceRecords:
+          _Type: string
+          _Required: false
+          _ListItemType: Common::Attributes
+        AliasTarget:
+          _Type: string
+          _Required: false
+          _ListItemType: Common::Attributes
+        Pipeline::Security:
+          _Required: false          
+          _Type: Pipeline::IpSecurity

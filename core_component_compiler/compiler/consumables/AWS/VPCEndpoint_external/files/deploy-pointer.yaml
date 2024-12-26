@@ -1,0 +1,38 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set resource = app[component_name].Configuration %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::VPCE External - {{ component_name }} - pointers
+
+Parameters:
+  BaseStackName:
+    Type: String
+
+  ResourcesStackName:
+    Type: String
+
+  VpcEndPointRecord:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId:
+        Fn::ImportValue:
+          Fn::Sub: 'core-network-{{ context.Environment }}:PublicOnlyHostedZoneId'
+      RecordSets:
+        {% if resource.Properties.Aliases is defined %}
+        {% for alias in resource.Properties.Aliases %}
+        - Name: {{ alias.Value }}
+          Type: CNAME
+          TTL: 60
+          ResourceRecords:
+            - !Sub: "${ResourcesStackName}:LoadBalancerDnsName"
+        {% endfor %}
+        {% endif %}
+        - Name: !Sub
+          - '{{ component_name }}.pnd.{{ context.Environment }}.aws.simple.com'
+          - Domain:
+              Fn::ImportValue:
+                Fn::Sub: 'core-network-{{ context.Environment }}:PublicOnlyRootHostedZoneName'
+          Type: A
+          AliasTarget:
+            DNSName: !Sub: "${ResourcesStackName}:LoadBalancerDnsName"
+            HostedZoneId: !ImportValue: !Sub 'core-network-{{ context.Environment }}:PublicOnlyHostedZoneId'

@@ -1,0 +1,260 @@
+Resource::AWS::ElasticLoadBalancingCCP::Listener::ALB:
+  Properties:
+    Certificates:
+      _Type: list
+      _Required: 
+        Spec::Property: [ Protocol, HTTPS ]
+      _ListLength: 1
+      _ListItemSpec:
+        CertificateArn:
+          _Type: string
+          _StringRegex: "arn:aws:acm:.*"
+    Port:
+      _Type: int
+      _IntMinValue: 1
+      _IntMaxValue: 65535
+    Protocol:
+      _Type: string
+      _StringEnum: [ HTTP, HTTPS ]
+
+Resource::AWS::ElasticLoadBalancingCCP::Listener::NLB:
+  Properties:
+    DefaultActions:
+      _Type: list
+      _ListItemSpec:
+        TargetGroupArn:
+          _Type: aws-string
+          _Required: false
+        Type:
+          _Type: string
+          _Required: false
+          _StringEnum: [ forward, redirect, fixed-response ]
+    Certificates:
+      _Type: list
+      _Required:
+        Spec::Property: [ Protocol, TLS ]
+      _ListLength: 1
+      _ListItemSpec:
+        CertificateArn:
+          _Type: string
+          _StringRegex: "arn:aws:acm:.*"
+    Port:
+      _Type: int
+      _IntMinValue: 1
+      _IntMaxValue: 65535
+    Protocol:
+      _Type: string
+      _StringEnum: [ TCP, TCP_UDP, TLS, UDP ]
+
+Resource::AWS::ElasticLoadBalancingCCP::ListenerRule:
+  Properties:
+    Actions:
+      _Type: list
+      _ListItemSpec:
+        TargetGroupArn:
+          _Type: aws-string
+          _Requred: true
+        Type:
+          _Type: string
+          _Requred: true
+          _StringEnum: [ forward, redirect, fixed-response ]
+    Conditions:
+      _Type: list
+      _ListItemSpec:
+        Field:
+          _Type: string
+          _Required: false
+          _StringEnum: [ host-header, path-pattern ]
+        Values:
+          _Type: list
+          _ListItemType: string
+    ListenerArn:
+      _Type: aws-string
+    Priority:
+      _Type: int
+      _IntMinValue: 1
+      _IntMaxValue: 50000
+
+Resource::AWS::ElasticLoadBalancingCCP::TargetGroup::ALB:
+  Properties:
+    HealthCheckIntervalSeconds:
+      _Type: int
+      _Required: false
+      _IntMinValue: 5
+      _IntMaxValue: 300
+    HealthCheckPath:
+      _Type: string
+      _Required: false
+      _StringLength: 1-1024
+    HealthCheckPort:
+      _Type: scalar
+      _Required: false
+    HealthCheckProtocol:
+      _Type: string
+      _Required: false
+      _StringEnum: [ HTTP, HTTPS ]
+    HealthCheckTimeoutSeconds:
+      _Type: int
+      _Required: false
+      _IntMinValue: 2
+      _IntMaxValue: 60
+    HealthyThresholdCount:
+      _Type: int
+      _Required: false
+      _IntMinValue: 2
+      _IntMaxValue: 10
+    Matcher:
+      _Required: false
+      _Documentation: https://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_Matcher.html
+      HttpCode:
+        _Type: string
+        _Documentation: https://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_Matcher.html
+        _StringRegex: '([2-4][0-9]{2}(,[2-4][0-9]{2})*)|([2-4][0-9]{2}-[2-4][0-9]{2})'
+    Port:
+      _Type: int
+    Protocol:
+      _Type: string
+      _StringEnum: [ HTTP, HTTPS ]
+    TargetGroupAttributes:
+      _Type: list
+      _Required: false
+      _ListItemSpec:
+        Key:
+          _Type: string
+          _StringEnum:
+            - deregistration_delay.timeout_seconds
+            - stickiness.enabled
+            - stickiness.type
+            - stickiness.lb_cookie.duration_seconds
+            - stickiness.app_cookie.cookie_name
+            - stickiness.app_cookie.duration_seconds
+          _StringLength: 1-256
+          _StringRegex: '[a-zA-Z0-9._]+'
+        Value:
+          _Type: scalar
+    Targets:
+      _Type: list
+      _Required: false
+      _ListLength: 1+
+      _ListItemSpec:
+        Id:
+          _Type: string
+          _StringLength: 1-256
+          _StringRegex: '[a-zA-Z0-9_.-]+'
+    TargetType:
+      _Type: string
+      _Required: false
+      _StringEnum: [ instance,ip,lambda ]
+    UnhealthyThresholdCount:
+      _Type: int
+      _Required: false
+      _IntMinValue: 2
+      _IntMaxValue: 10
+
+Resource::AWS::ElasticLoadBalancingCCP::TargetGroup::NLB:
+  Properties:
+    HealthCheckIntervalSeconds:
+      _Type: int
+      _Required: false
+      _IntMinValue: 5
+      _IntMaxValue: 300
+    HealthCheckPath:
+      _Type: string
+      _Required: false
+      _StringLength: 1-1024
+    HealthCheckPort:
+      _Type: scalar
+      _Required: false
+    HealthCheckProtocol:
+      _Type: string
+      _Required: false
+      _StringEnum: [ TCP, TCP_UDP, TLS, UDP, HTTP, HTTPS ]
+    HealthCheckTimeoutSeconds:
+      _Type: int
+      _Required: false
+      _IntMinValue: 2
+      _IntMaxValue: 60
+    HealthyThresholdCount:
+      _Type: int
+      _Required: false
+      _IntMinValue: 2
+      _IntMaxValue: 10
+    Matcher:
+      _Required: false
+      _Documentation: https://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_Matcher.html
+      HttpCode:
+        _Type: string
+        _Documentation: https://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_Matcher.html
+        _StringRegex: '([2-4][0-9]{2}(,[2-4][0-9]{2})*)|([2-4][0-9]{2}-[2-4][0-9]{2})'
+    Port:
+      _Type: int
+    Protocol:
+      _Type: string
+      _StringEnum: [ TCP,TCP_UDP,TLS,UDP ]
+    TargetGroupAttributes:
+      _Type: list
+      _Required: false
+      _ListItemSpec:
+        Key:
+          _Type: string
+          _StringEnum:
+            - deregistration_delay.timeout_seconds
+            - stickiness.enabled
+            - stickiness.type
+            - stickiness.lb_cookie.duration_seconds
+            - stickiness.app_cookie.cookie_name
+            - stickiness.app_cookie.duration_seconds
+          _StringLength: 1-256
+          _StringRegex: '[a-zA-Z0-9._]+'
+        Value:
+          _Type: scalar
+    Targets:
+      _Type: list
+      _Required: false
+      _ListLength: 1+
+      _ListItemSpec:
+        Id:
+          _Type: string
+          _StringLength: 1-256
+          _StringRegex: '[a-zA-Z0-9_.-]+'
+    TargetType:
+      _Type: string
+      _Required: false
+      _StringEnum: [ instance,ip,lambda ]
+    UnhealthyThresholdCount:
+      _Type: int
+      _Required: false
+      _IntMinValue: 2
+      _IntMaxValue: 10
+
+# Resource::Custom::NLB-TargetGroup:
+#   Properties:
+#     Targets:
+#       _Type: list
+#       _Required: true
+#       _ListLength: 1
+#       _ListItemSpec:
+#         Id:
+#           _Type: Fn::Pipeline::GetOutput
+
+Resource::Custom::ALB-TargetGroup:
+  Properties:
+    Targets:
+      _Type: list
+      _Required: true
+      _ListLength: 1
+      _ListItemSpec:
+        Id:
+          _Type: Fn::Pipeline::GetOutput
+
+Resource::AWS::ElasticLoadBalancingCCP::ListenerCertificate:
+  Properties:
+    Certificates:
+      _Type: list
+      _Required: false
+      _ListLength: 1+
+      _ListItemSpec:
+        CertificateArn:
+          _Type: string
+    ListenerArn:
+      _Type: aws-string

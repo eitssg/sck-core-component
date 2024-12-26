@@ -1,0 +1,118 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::DynamoDB - {{ component_name }} - pointers
+
+Parameters:
+  BaseStackName:
+    Type: String
+
+  ResourcesStackName:
+    Type: String
+
+Resources:
+  # Stream ARN TXT record
+  StreamArnDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId:
+        Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:HostedZoneId
+      Name:
+        Fn::Sub:
+          - "stream-{{ names.deployment_dns_prefix }}.${RegionalHostedZoneName}"
+          - RegionalHostedZoneName:
+              Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:RegionalHostedZoneName
+      ResourceRecords:
+        - Fn::Sub:
+          - '"${Record}"'
+          - Record:
+              Fn::ImportValue:
+                Fn::Sub: "${ResourcesStackName}:StreamArn"
+      Type: TXT
+      TTL: 60
+
+  # Table ARN TXT record
+  TableArnDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId:
+        Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:HostedZoneId
+      Name:
+        Fn::Sub:
+          - "{{ names.deployment_dns_prefix }}.${RegionalHostedZoneName}"
+          - RegionalHostedZoneName:
+              Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:RegionalHostedZoneName
+      ResourceRecords:
+        - Fn::Sub:
+          - '"${Record}"'
+          - Record:
+              Fn::ImportValue:
+                Fn::Sub: "${ResourcesStackName}:TableArn"
+      Type: TXT
+      TTL: 60
+
+Outputs:
+  Build:
+    Value: "{{ context.Build }}"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:Build"
+
+  BaseStackName:
+    Value:
+      Ref: BaseStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BaseStackName"
+
+  PointersStackName:
+    Value:
+      Ref: "AWS::StackName"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:PointersStackName"
+
+  ResourcesStackName:
+    Value:
+      Ref: ResourcesStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:ResourcesStackName"
+
+  StreamArn:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:StreamArn"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:StreamArn"
+
+  StreamArnDeploymentDns:
+    Value:
+      Ref: StreamArnDnsRecord
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:StreamArnDeploymentDns"
+
+  TableArn:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:TableArn"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:TableArn"
+
+  TableArnDeploymentDns:
+    Value:
+      Ref: TableArnDnsRecord
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:TableArnDeploymentDns"
+
+  TableName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:TableName"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:TableName"

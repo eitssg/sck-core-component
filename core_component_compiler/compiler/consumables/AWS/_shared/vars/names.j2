@@ -1,0 +1,28 @@
+
+{% set Build = context.Build %}
+{% if 'PersistUpdateVersion' in app[component_name] %}
+{% set Build = app[component_name].PersistUpdateVersion %}
+{% endif %}
+
+{% set base_build_name_hyphenated = [ context.Portfolio, context.App, context.BranchShortName, Build, component_name] | join("-") %}
+
+{% set base_release_name_hyphenated = [ context.Portfolio, context.App, context.BranchShortName, component_name ] | join("-") %}
+{% set base_stack_name = base_build_name_hyphenated %}
+{% set base_resource_name_hyphenated = [ context.Portfolio, context.App, context.BranchShortName ] | join("-") %}
+
+{% set bake_stack_name = base_stack_name ~ "-" ~ "bake" %}
+{% set build_stack_name = base_stack_name ~ "-" ~ "build" %}
+{% set deployment_dns_prefix = [ component_name, context.BranchShortName ~ "-" ~ Build, context.App, context.Portfolio ] | join(".") %}
+{% set deployment_dns_prefix_hyphen = [ component_name, context.BranchShortName, Build, context.App, context.Portfolio ] | join("-") %}
+
+{% set image_name = base_build_name_hyphenated %}
+{% set log_group_name = base_build_name_hyphenated %}
+{% set log_groups_stack_suffix = "log-groups" %}
+{% set log_groups_stack_name = base_stack_name ~ "-" ~ log_groups_stack_suffix %}
+{% set pointers_stack_name = base_stack_name ~ "-" ~ "pointers" %}
+{% set release_dns_prefix = [ component_name, context.BranchShortName, context.App, context.Portfolio ] | join(".") %}
+{% set release_dns_prefix_hyphen = [ component_name, context.BranchShortName, context.App, context.Portfolio ] | join("-") %}
+{% set release_stack_name = base_release_name_hyphenated ~ "-" ~ "release" %}
+{% set resources_stack_name = resources_stack_name | d(base_stack_name ~ "-" ~ "resources") %}
+{% set security_items_stack_name = base_release_name_hyphenated ~ "-" ~ "security" %}
+{% set security_rules_stack_name = base_stack_name ~ "-" ~ "security-rules" %}

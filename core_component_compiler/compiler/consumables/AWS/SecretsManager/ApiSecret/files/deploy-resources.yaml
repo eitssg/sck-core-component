@@ -1,0 +1,29 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::SecretsManager::ApiSecret - {{ component_name }} - resources
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+  SecurityStackName:
+    Type: String
+
+Resources:
+
+  {% set resource = app[component_name].Configuration.ApiSecret %}
+  Secret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: "{{ names.base_build_name_hyphenated }}"
+      Description: "{{ resource.Description | d(names.base_build_name_hyphenated) }}"
+      KmsKeyId: !Ref KmsKeyArn
+      SecretString: {{ resource.Properties.SecretString }}
+
+Outputs:
+
+  ApiSecretArn:
+    Value: !Ref ApiSecret
+    Export:
+      Name: !Sub "${AWS::StackName}:ApiSecretArn"
+

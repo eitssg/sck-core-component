@@ -1,0 +1,109 @@
+AWS::StaticWebsite:
+  _Type: Component
+
+  Configuration:
+    Distribution:
+      DefaulWafWebAclBlock:
+        _Type: boolean
+        _Required: false
+      Pipeline::Security:
+        _Type: Pipeline::IpSecurity
+        _Required: false
+        _ListItemSpec:
+          Allow:
+            _ListItemSpec:
+              _StringEnum: [ 'TCP:80', 'TCP:443' ]
+      Properties:
+        DistributionConfig:
+          Aliases:
+            _Type: list
+            _Required: false
+            _ListItemType: string
+          CacheBehaviors:
+            _Type: list
+            _Required: false
+            _ListItemType: AWS::CloudFront::Distribution::CacheBehavior
+            _ListItemSpec:
+              PathPattern:
+                _Type: string
+          CustomErrorResponses:
+            _Required: false
+            ErrorCachingMinTTL:
+              _Type: int
+              _Required: false
+            ErrorCode:
+              _Type: int
+              _IntEnum: [ 400, 403, 404, 405, 414, 500, 501, 502, 503, 504 ]
+            ResponseCode:
+              _Type: int
+              _Required:
+                Spec::Property: [ ResponsePagePath ]
+              _IntEnum: [ 200, 400, 403, 404, 405, 414, 500, 501, 502, 503, 504 ]
+            ResponsePagePath:
+              _Type: string
+              _Required:
+                Spec::Property: [ ResponseCode ]
+          DefaultCacheBehavior:
+            _Type: AWS::CloudFront::Distribution::CacheBehavior
+          DefaultRootObject:
+            _Type: string
+            _Required: false
+          PriceClass:
+            _Type: string
+            _Required: false
+            _StringEnum: [ PriceClass_100, PriceClass_200, PriceClass_All ]
+          ViewerCertificate:
+            _Required: false
+            AcmCertificateArn:
+              _Type: string
+
+AWS::CloudFront::Distribution::CacheBehavior:
+  AllowedMethods:
+    _Type: list
+    _Required: false
+    _ListItemType: string
+    # TODO: sets of allowed arrays
+  CachedMethods:
+    _Type: list
+    _Required: false
+    _ListItemType: string
+  Compress:
+    _Type: boolean
+    _Required: false
+  DefaultTTL:
+    _Type: int
+    _Required: false
+  ForwardedValues:
+    Cookies:
+      _Required: false
+      Forward:
+        _Type: string
+        _StringEnum: [ none, all, whitelist ]
+      WhitelistedNames:
+        _Type: list
+        _ListItemType: string
+        _Required:
+          Spec::Property: [ Forward, whitelist ]
+    Headers:
+      _Type: list
+      _Required: false
+      _ListItemType: string
+    QueryString:
+      _Type: boolean
+    QueryStringCacheKeys:
+      _Type: list
+      _Required: false
+      _ListItemType: string
+  MaxTTL:
+    _Type: int
+    _Required: false
+  MinTTL:
+    _Type: int
+    _Required: false
+  TargetOriginId:
+    _Type: string
+    _Required: true
+ #   _StringEnum: [ bucket ]
+  ViewerProtocolPolicy:
+    _Type: string
+    _StringEnum: [ allow-all, redirect-to-https, https-only ]

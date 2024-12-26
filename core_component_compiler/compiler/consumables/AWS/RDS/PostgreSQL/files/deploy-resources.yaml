@@ -1,0 +1,161 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set db_instance_id = names.base_build_name_hyphenated | shorten_unique(63, unique_length=10) %}
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::RDS::PostgreSQL - {{ component_name }} - resources
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Conditions:
+  KmsKeyExists: { "Fn::Not": [ "Fn::Equals": [ Ref: KmsKeyArn, "" ] ] }
+
+Resources:
+
+  # RDS instance
+  {% set resource = app[component_name].Configuration.DbInstance %}
+  {% set deletion_policy = 'Snapshot' if resource.DeletionPolicy | d('') == 'Snapshot' else 'Delete' %}
+  DbInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: {{ deletion_policy }}
+    Properties:
+      AllocatedStorage: {{ resource.Properties.AllocatedStorage }}
+      AllowMajorVersionUpgrade: {{ resource.Properties.AllowMajorVersionUpgrade | d({ 'Ref': 'AWS::NoValue' }) }}
+      AutoMinorVersionUpgrade: {{ resource.Properties.AutoMinorVersionUpgrade | d({ 'Ref': 'AWS::NoValue' }) }}
+      BackupRetentionPeriod: {{ resource.Properties.BackupRetentionPeriod | d(7) }}
+      CharacterSetName: {{ resource.Properties.CharacterSetName | d({ 'Ref': 'AWS::NoValue' }) }}
+      CopyTagsToSnapshot: true
+      DBInstanceIdentifier: "{{ db_instance_id }}"
+      DBInstanceClass: {{ resource.Properties.DBInstanceClass }}
+      DBName: {{ resource.Properties.DBName | d({ 'Ref': 'AWS::NoValue' }) }}
+      {% if 'ParameterGroup' in app[component_name].Configuration %}
+      DBParameterGroupName:
+        Ref: ParameterGroup
+      {% endif %}
+      # DBSnapshotIdentifier: TODO
+      DBSubnetGroupName:
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:DbSubnetGroupName"
+      Engine: postgres
+      EngineVersion: {{ resource.Properties.EngineVersion | d({ 'Ref': 'AWS::NoValue' }) }}
+      Iops: {{ resource.Properties.Iops | d({ 'Ref': 'AWS::NoValue' }) }}
+      KmsKeyId:
+        Fn::If:
+          - KmsKeyExists
+          - Ref: KmsKeyArn
+          - Ref: "AWS::NoValue"
+      MasterUsername: {{ resource.Properties.MasterUsername }}
+      MasterUserPassword:
+        Fn::Join: ['', ['{{ '{{' }}resolve:secretsmanager:', !Ref DbSecret, ':SecretString:password{{ '}}' }}' ]]
+      {% if resource.Properties.MonitoringInterval | d(60) != 0 %}
+      MonitoringInterval: {{ resource.Properties.MonitoringInterval | d(60) }}
+      MonitoringRoleArn:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:MonitoringRoleArn"
+      {% endif %}
+      MultiAZ: {{ resource.Properties.MultiAZ | d({ 'Ref': 'AWS::NoValue' }) }}
+      {% if 'OptionGroup' in app[component_name].Configuration %}
+      OptionGroupName:
+        Ref: OptionGroup
+      {% endif %}
+      Port: {{ resource.Properties.Port | d({ 'Ref': 'AWS::NoValue' }) }}
+      PreferredBackupWindow: {{ resource.Properties.PreferredBackupWindow | d({ 'Ref': 'AWS::NoValue' }) }}
+      PreferredMaintenanceWindow: {{ resource.Properties.PreferredMaintenanceWindow | d({ 'Ref': 'AWS::NoValue' }) }}
+      PubliclyAccessible: false
+      StorageEncrypted: true
+      StorageType: {{ resource.Properties.StorageType | d('gp2') }}
+      VPCSecurityGroups:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:SecurityGroupId"
+        {% for rule in resource | ip_rules(source_types=['sg-attachment']) %}
+        - Fn::ImportValue: "{{ rule.Value }}"   # {{ rule.Description }}
+        {% endfor %}
+      {% if 'DBSnapshotIdentifier' in resource.Properties %}
+      DBSnapshotIdentifier: {{ resource.Properties.DBSnapshotIdentifier }}
+      {% endif %}
+      {% if 'CACertificateIdentifier' in resource.Properties %}
+      CACertificateIdentifier: {{ resource.Properties.CACertificateIdentifier }}
+      {% endif %}
+
+  # master user username/password as a secret
+  DbSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: "{{ names.base_build_name_hyphenated }}-dbsecret"
+      Description: "RDS master user name, password"
+      KmsKeyId: !Ref KmsKeyArn
+      GenerateSecretString:
+        SecretStringTemplate: "{\"username\": \"{{ resource.Properties.MasterUsername }}\"}"
+        ExcludeUppercase: false
+        IncludeSpace: false
+        PasswordLength: 32
+        ExcludePunctuation: true
+        ExcludeLowercase: false
+        ExcludeNumbers: false
+        GenerateStringKey: "password"
+      # No Tags, managed by CFN.
+
+  # Attaches the secret to the rds database resource.
+  DbSecretAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId:
+        Ref: DbSecret
+      TargetId:
+        Ref: DbInstance
+      TargetType: AWS::RDS::DBInstance
+
+  {% if 'ParameterGroup' in app[component_name].Configuration %}
+  {% set resource = app[component_name].Configuration.ParameterGroup %}
+  ParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: {{ resource.Properties.Description }}
+      Family: {{ resource.Properties.Family }}
+      Parameters:
+        {{ resource.Properties.Parameters | to_yaml | indent(8) }}
+  {% endif %}
+
+  {% if 'OptionGroup' in app[component_name].Configuration %}
+  {% set resource = app[component_name].Configuration.OptionGroup %}
+  OptionGroup:
+    Type: AWS::RDS::OptionGroup
+    DeletionPolicy: Retain
+    Properties:
+      EngineName: {{ resource.Properties.EngineName }}
+      MajorEngineVersion: {{ resource.Properties.MajorEngineVersion }}
+      OptionGroupDescription: {{ resource.Properties.OptionGroupDescription }}
+      OptionConfigurations:
+        {{ resource.Properties.OptionConfigurations | to_yaml | indent(8) }}
+  {% endif %}
+
+Outputs:
+  DbInstanceId:
+    Value:
+      Ref: DbInstance
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DbInstanceId"
+
+  DbInstanceEndpoint:
+    Value:
+      Fn::GetAtt: [ DbInstance, Endpoint.Address ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DbInstanceEndpoint"
+
+  DbInstancePort:
+    Value:
+      Fn::GetAtt: [ DbInstance, Endpoint.Port ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DbInstancePort"
+
+  # Not sure if this is useful yet - might be handy for passing through to other components in the app that need the secret.
+  DbSecretId:
+    Value: !Ref DbSecret
+    Export:
+      Name: !Sub "${AWS::StackName}:DbSecretId"

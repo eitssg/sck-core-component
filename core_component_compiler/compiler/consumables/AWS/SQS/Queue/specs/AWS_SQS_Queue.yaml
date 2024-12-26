@@ -1,0 +1,44 @@
+AWS::SQS::Queue:
+  _Type: Component
+
+  Configuration:
+    Queue:
+      Pipeline::Security:
+        _Type: Pipeline::IamSecurity
+        _Required: false
+        _ListItemSpec:
+          Allow:
+            _ListItemSpec:
+              _StringEnum: [ read, write, admin ]
+      Properties:
+        DelaySeconds:
+          _Type: int
+          _Required: false
+          _IntMinValue: 0
+          _IntMaxValue: 900
+        MaximumMessageSize:
+          _Type: int
+          _Required: false
+          _IntMinValue: 1024
+          _IntMaxValue: 262144
+        MessageRetentionPeriod:
+          _Type: int
+          _Required: false
+          _IntMinValue: 60
+          _IntMaxValue: 1209600
+        ReceiveMessageWaitTimeSeconds:
+          _Type: int
+          _Required: false
+          _IntMinValue: 1
+          _IntMaxValue: 20
+        FifoQueue:
+          _Type: boolean
+          _Required: false
+        VisibilityTimeout:
+          _Type: int
+          _Required: false
+          _IntMinValue: 0
+          _IntMaxValue: 43200
+        ContentBasedDeduplication:
+          _Type: boolean
+          _Required: false

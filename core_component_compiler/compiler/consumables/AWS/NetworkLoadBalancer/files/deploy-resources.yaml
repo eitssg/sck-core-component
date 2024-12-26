@@ -1,0 +1,144 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::NetworkLoadBalancer - {{ component_name }} - resources
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Resources:
+
+  # Developer needs to define "DefaultTargetGroup" for the default TG to be invoked.
+  {% if app[component_name].Configuration.DefaultTargetGroup is not defined %}
+  DefaultTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 80
+      Protocol: TCP
+      VpcId:
+        {% if (app[component_name].Configuration.NetworkLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:VpcId"
+        {% else %}	
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {% endif %}
+  {% endif %}
+
+  # Target Group
+  # See https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-elasticloadbalancingv2-targetgroup.html
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('TargetGroup') %}
+  {{ resource_name }}:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      {% if resource.Properties.HealthCheckProtocol is defined %}
+      HealthCheckProtocol: {{ resource.Properties.HealthCheckProtocol }}
+      {% endif %}
+      {% if resource.Properties.HealthCheckPort is defined %}
+      HealthCheckPort: {{ resource.Properties.HealthCheckPort }}
+      {% endif %}
+      HealthyThresholdCount: {{ resource.Properties.HealthyThresholdCount | d(3) }}
+      UnhealthyThresholdCount: {{ resource.Properties.UnhealthyThresholdCount | d(5) }}
+      # HealthCheckTimeoutSeconds: {{ resource.Properties.HealthCheckTimeoutSeconds | d(3) }}
+      HealthCheckIntervalSeconds: {{ resource.Properties.HealthCheckIntervalSeconds | d(30) }}
+      {% if resource.Properties.HealthCheckPath is defined %}
+      HealthCheckPath: {{ resource.Properties.HealthCheckPath }}
+      {% endif %}
+      {% if resource.Properties.Matcher is defined %}
+      Matcher:
+        HttpCode: {{ resource.Properties.Matcher.HttpCode | d('200') }}
+      {% endif %}
+      Port: {{ resource.Properties.Port }}
+      Protocol: {{ resource.Properties.Protocol }}
+      VpcId:
+        {% if (app[component_name].Configuration.NetworkLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:VpcId"
+        {% else %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {% endif %}
+      {% if resource.Properties.TargetGroupAttributes is defined %}
+      TargetGroupAttributes:
+        {{ resource.Properties.TargetGroupAttributes | to_yaml | indent(8) }}
+      {% endif %}
+  {% endfor %}
+
+  # Load balancer
+  {% set resource = app[component_name].Configuration.NetworkLoadBalancer %}
+  NetworkLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      {% if 'LoadBalancerAttributes' in resource.Properties %}
+      LoadBalancerAttributes:
+        {{ resource.Properties.LoadBalancerAttributes | to_yaml | indent(8) }}
+      {% endif %}
+      Scheme: {{ resource.Properties.Scheme | d('internal') }}
+      Subnets:
+        {% if (app[component_name].Configuration.NetworkLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['public'] }}1Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['public'] }}2Id"
+        {% if context.AzCount >= 3 %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['public'] }}3Id"
+        {% endif %}
+        {% else %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}2Id"
+        {% if context.AzCount >= 3 %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}3Id"
+        {% endif %}
+        {% endif %}
+      Type: network
+
+  # Load balancer listeners (i.e. TCP, TLS)
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('Listener') %}
+  {{ resource_name }}:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        {{ resource.Properties.DefaultActions | to_yaml | indent(8) }}
+#            Ref: DefaultTargetGroup  # FIXME specific target group rather than the default?
+      LoadBalancerArn:
+        Ref: NetworkLoadBalancer
+      {% if resource.Properties.Certificates is defined %}
+      Certificates:
+        {{ resource.Properties.Certificates | to_yaml | indent(8) }}
+      {% endif %}
+      Port: {{ resource.Properties.Port }}
+      Protocol: {{ resource.Properties.Protocol }}
+
+  {% endfor %}
+
+Outputs:
+
+  LoadBalancerDnsName:
+    Value:
+      Fn::GetAtt: [ NetworkLoadBalancer, DNSName ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LoadBalancerDnsName"
+
+  LoadBalancerHostedZoneId:
+    Value:
+      Fn::GetAtt: [ NetworkLoadBalancer, CanonicalHostedZoneID ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LoadBalancerHostedZoneId"
+
+  LoadBalancerArn:
+    Value:
+      Ref: NetworkLoadBalancer
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LoadBalancerArn"
+
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('Listener') %}
+  {{ resource_name }}Arn:
+    Value:
+      Ref: {{ resource_name }}
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:{{ resource_name }}Arn"
+
+  {% endfor %}

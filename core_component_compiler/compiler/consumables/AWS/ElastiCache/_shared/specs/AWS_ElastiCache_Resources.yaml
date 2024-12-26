@@ -1,0 +1,10 @@
+AWS::ElastiCache::ParameterGroup:
+  Properties:
+    CacheParameterGroupFamily:
+      _Type: string
+      _StringEnum: [redis2.6, redis2.8, redis3.2, redis4.0, redis5.0]
+    Properties:
+      Property:
+        _KeyRegex: '.*'
+        _KeyCardinality: 1+
+        _Type: scalar

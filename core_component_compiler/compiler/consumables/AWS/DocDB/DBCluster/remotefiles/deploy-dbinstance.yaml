@@ -1,0 +1,32 @@
+  # ----------
+  # Instance Resources
+  # ----------
+  {% import "AWS/_shared/vars/names.j2" as names with context %}
+  {% set instancecount = namespace(value=0) %}
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('DBInstance') %}
+  {% set db_instance_id = names.base_build_name_hyphenated | shorten_unique(63, unique_length=10) %}
+  {% set db_cluster_id  = names.base_build_name_hyphenated | shorten_unique(63, unique_length=10) %}
+  {{ resource_name }}:
+    Type: AWS::DocDB::DBInstance
+    {% if 'DependsOn' in resource %}
+    DependsOn:
+      {{ resource.DependsOn | to_yaml | indent(6) }}
+    {% endif %}
+    Properties:
+      # AllowMajorVersionUpgrade: {{ resource.Properties.AllowMajorVersionUpgrade | d({ 'Ref': 'AWS::NoValue' }) }}
+      AutoMinorVersionUpgrade: {{ resource.Properties.AutoMinorVersionUpgrade | d({ 'Ref': 'AWS::NoValue' }) }}
+      {% if instancecount.value > 0 %}
+      DBInstanceIdentifier: "{{ db_instance_id }}-{{ instancecount.value }}"
+      {% else %}
+      DBInstanceIdentifier: "{{ db_instance_id }}"
+      {% endif %}
+      {% set instancecount.value = instancecount.value + 1 %}
+      DBInstanceClass: {{ resource.Properties.DBInstanceClass }}
+      DBClusterIdentifier:  "{{ db_cluster_id }}"
+      {% if 'CACertificateIdentifier' in resource.Properties %}
+      CACertificateIdentifier: {{ resource.Properties.CACertificateIdentifier }}
+      {% endif %}
+      {% if 'PreferredMaintenanceWindow' in resource.Properties %}
+      PreferredMaintenanceWindow: {{ resource.Properties.PreferredMaintenanceWindow }}
+      {% endif %}  
+    {% endfor %}

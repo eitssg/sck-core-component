@@ -1,0 +1,68 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::EFS - {{ component_name }} - resources
+
+Parameters:
+
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Conditions:
+
+  KmsKeyExists: { "Fn::Not": [ "Fn::Equals": [ Ref: KmsKeyArn, "" ] ] }
+
+Resources:
+
+  {% set resource = app[component_name].Configuration.FileSystem %}
+  FileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      Encrypted: true # Force encryption
+      # FileSystemTags: # TODO What goes here vs CFN stack tags?
+      KmsKeyId: !If [KmsKeyExists, !Ref KmsKeyArn, !Ref "AWS::NoValue"]
+      PerformanceMode: {{ resource.Properties.PerformanceMode | d('generalPurpose') }}
+      # ProvisionedThroughputInMibps # TODO?
+      # ThroughputMode # TODO?
+
+  {% for i in range(1, context.AzCount+1) %}
+  MountTarget{{ i }}:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SecurityGroups:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:SecurityGroupId"
+        {% for rule in resource | ip_rules(source_types=['sg-attachment']) %}
+        - Fn::ImportValue: "{{ rule.Value }}"   # {{ rule.Description }}
+        {% endfor %}
+      SubnetId:
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}{{ i }}Id"
+
+ {% endfor %}
+
+Outputs:
+
+  DefaultExport:
+    Value:
+      Ref: AWS::StackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DefaultExport"
+
+  FileSystemId:
+    Value: !Ref FileSystem
+    Export:
+      Name: !Sub "${AWS::StackName}:FileSystemId"
+
+  # TODO Adapt for IpAddress when it's available.
+  {% for i in range(1, context.AzCount+1) %}
+  MountTarget{{ i }}Id:
+    Value: !Ref MountTarget{{ i }}
+    Export:
+      Name: !Sub "${AWS::StackName}:MountTarget{{ i }}Id"
+
+  {% endfor %}

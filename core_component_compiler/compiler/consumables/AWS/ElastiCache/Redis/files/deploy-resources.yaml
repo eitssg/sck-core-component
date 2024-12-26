@@ -1,0 +1,156 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set replication_group_id = names.base_build_name_hyphenated | shorten_unique(20, unique_length=10) | lower %}
+{% set component_type = app[component_name].Type %}
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::ElastiCache::Redis - {{ component_name }} - resources
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Conditions:
+  KmsKeyExists: { "Fn::Not": [ "Fn::Equals": [ Ref: KmsKeyArn, "" ] ] }
+
+Resources:
+  {% set resource = app[component_name].Configuration.ReplicationGroup %}
+  ReplicationGroup:
+    Type: AWS::ElastiCache::ReplicationGroup
+    DeletionPolicy: {{ resource.DeletionPolicy | d('Snapshot') }}
+    UpdateReplacePolicy: {{ resource.DeletionPolicy | d('Snapshot') }}
+    Properties:
+      AtRestEncryptionEnabled: true
+      AuthToken: !Join ['', ['{{ '{{' }}resolve:secretsmanager:', !Ref RedisSecret, ':SecretString:authtoken{{ '}}' }}' ]]
+      AutoMinorVersionUpgrade: {{ resource.Properties.AutoMinorVersionUpgrade | d({ 'Ref': 'AWS::NoValue' }) }}
+      {% if resource.Properties.NumNodeGroups > 2 or resource.Properties.ReplicasPerNodeGroup > 0 %}
+      AutomaticFailoverEnabled: true
+      {% else %}
+      AutomaticFailoverEnabled: false
+      {% endif %}
+      CacheNodeType: {{ resource.Properties.CacheNodeType }}
+      {% if 'ParameterGroup' in app[component_name].Configuration %}
+      CacheParameterGroupName:
+        Ref: ParameterGroup
+      {% endif %}
+      CacheSubnetGroupName: !ImportValue "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:ElastiCacheSubnetGroupName"
+      Engine: redis
+      EngineVersion: {{ resource.Properties.EngineVersion | d({ 'Ref': 'AWS::NoValue' }) }}
+      NumNodeGroups: {{ resource.Properties.NumNodeGroups }}
+      Port: {{ resource.Properties.Port | d({ 'Ref': 'AWS::NoValue' }) }}
+      PreferredMaintenanceWindow: {{ resource.Properties.PreferredMaintenanceWindow | d({ 'Ref': 'AWS::NoValue' }) }}
+      ReplicasPerNodeGroup: {{ resource.Properties.ReplicasPerNodeGroup }}
+      ReplicationGroupDescription: {{ names.base_build_name_hyphenated }}
+      ReplicationGroupId: {{ replication_group_id }}
+      SecurityGroupIds:
+        - Fn::ImportValue: !Sub "${SecurityStackName}:SecurityGroupId"
+        {% for rule in resource | ip_rules(source_types=['sg-attachment']) %}
+        - Fn::ImportValue: "{{ rule.Value }}"
+        {% endfor %}
+      {% if 'SnapshotName' in resource.Properties %}
+      SnapshotName: {{ resource.Properties.SnapshotName | snapshot_name(component_type) }}
+      {% endif %}
+      SnapshotRetentionLimit: {{ resource.Properties.SnapshotRetentionLimit | d(7) }}
+      SnapshotWindow: {{ resource.Properties.SnapshotWindow | d({ 'Ref': 'AWS::NoValue' }) }}
+      TransitEncryptionEnabled: true
+
+  RedisSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: "{{ names.base_build_name_hyphenated }}-redissecret"
+      Description: "Redis authtoken"
+      KmsKeyId:
+        Fn::If:
+          - KmsKeyExists
+          - Ref: KmsKeyArn
+          - Ref: AWS::NoValue
+      GenerateSecretString:
+        ExcludeCharacters: '/"@'
+        ExcludeUppercase: false
+        IncludeSpace: false
+        PasswordLength: 128
+        ExcludePunctuation: true
+        ExcludeLowercase: false
+        ExcludeNumbers: false
+        SecretStringTemplate: '{}'
+        GenerateStringKey: 'authtoken'
+
+  {% if 'ParameterGroup' in app[component_name].Configuration %}
+  {% set resourcepg = app[component_name].Configuration.ParameterGroup %}
+  ParameterGroup:
+    Type: AWS::ElastiCache::ParameterGroup
+    Properties:
+      CacheParameterGroupFamily: {{ resourcepg.Properties.CacheParameterGroupFamily }}
+      Description: {{ names.base_build_name_hyphenated }}
+      Properties:
+        {{ resourcepg.Properties.Properties | to_yaml | indent(8) }}
+  {% endif %}
+
+Outputs:
+  {% if resource.Properties.NumNodeGroups == 1 %}
+
+  ReplicationGroupId:
+    Value:
+      Ref: ReplicationGroup
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:ReplicationGroupId"
+
+  EndpointAddress:
+    Value:
+      Fn::GetAtt: [ ReplicationGroup, PrimaryEndPoint.Address ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:EndpointAddress"
+
+  Port:
+    Value:
+      Fn::GetAtt: [ ReplicationGroup, PrimaryEndPoint.Port ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:Port"
+
+  # As of writing this consumable, cloudformation does not support the return value of the single reader endpoint.
+  # Thus, doing a temporary workaround to output it by replacing "master" in the primary endpoint with "replica".
+  # Tested a few times, primary and reader endpoint will have the same suffix consistently.
+  # E.g. Primary endpoint: "master.xxx.xxx.cache.amazonaws.com", Reader endpoint: "replica.xxx.xxx.cache.amazonaws.com"
+  ReaderEndpointAddress:
+    Value:
+      Fn::Join: ["", ["replica.", "Fn::Select": [1, "Fn::Split": ["master.", "Fn::GetAtt": [ ReplicationGroup, PrimaryEndPoint.Address ]]]]]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:ReaderEndpointAddress"
+
+  {% else %}
+
+  ReplicationGroupId:
+    Value:
+      Ref: ReplicationGroup
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:ReplicationGroupId"
+
+  EndpointAddress:
+    Value:
+      Fn::GetAtt: [ ReplicationGroup, ConfigurationEndPoint.Address ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:EndpointAddress"
+
+  Port:
+    Value:
+      Fn::GetAtt: [ ReplicationGroup, ConfigurationEndPoint.Port ]
+    Export:
+      Name: !Sub "${AWS::StackName}:Port"
+
+  ReaderEndpointAddress:
+    Value:
+      none
+    Export:
+      Name: !Sub "${AWS::StackName}:ReaderEndpointAddress"
+
+  {% endif %}

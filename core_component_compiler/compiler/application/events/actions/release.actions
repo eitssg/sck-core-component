@@ -1,0 +1,30 @@
+{% set status_details = { "Scope": "build", "Environment": context.Environment } %}
+
+- Type: System::NoOp
+  Label: "{{ context.BuildPrn }}:action/pre-release/status-starting"
+  DependsOn: []
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: RELEASE_IN_PROGRESS
+          Message: "Build release started"
+        Identity: "{{ context.BuildPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+- Type: System::NoOp
+  Label: "{{ context.BuildPrn }}:action/post-release/status-complete"
+  DependsOn:
+    - "{{ context.BuildPrn }}:*:action/release/*"
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: RELEASE_COMPLETE
+          Message: "Build release successful"
+        Identity: "{{ context.BuildPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

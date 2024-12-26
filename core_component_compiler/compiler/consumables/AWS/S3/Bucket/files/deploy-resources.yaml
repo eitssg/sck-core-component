@@ -1,0 +1,216 @@
+{% set Build = context.Build %}
+{% if 'PersistUpdateVersion' in app[component_name] %}
+{% set Build = app[component_name].PersistUpdateVersion %}
+{% endif %}
+
+{% set resource = app[component_name].Configuration.Bucket %}
+{% set scope = resource | extract('Properties.BucketName."Fn::Pipeline::S3BucketName".Scope', 'build') %}
+{% if scope == 'branch' %}
+{% set bucket_name = [ context.Portfolio, context.App, context.BranchShortName, component_name ] | join("-") | shorten_unique(63, unique_length=10) | lower %}
+{% set base_rule_id = component_name %}
+{% else %}
+{% set bucket_name = [ context.Portfolio, context.App, context.BranchShortName, Build, component_name ] | join("-") | shorten_unique(63, unique_length=10) | lower %}
+{% set base_rule_id = [ component_name, Build ] | join("-") %}
+
+
+{% endif %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::S3::Bucket - {{ component_name }} - resources
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Conditions:
+  KmsKeyDoesNotExist: { "Fn::Equals": [ Ref: KmsKeyArn, "" ] }
+  KmsKeyExists: { "Fn::Not": [ Condition: KmsKeyDoesNotExist ] }
+
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: {{ bucket_name }}
+      {% if resource.Properties is defined %}
+      {% if resource.Properties.LifecycleConfiguration is defined %}
+      LifecycleConfiguration:
+         Rules:
+          {% for rule in resource.Properties.LifecycleConfiguration.Rules %}
+          -
+            {% if rule.AbortIncompleteMultipartUpload is defined %}
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: {{ rule.AbortIncompleteMultipartUpload.DaysAfterInitiation }}
+            {% endif %}
+            ExpirationDate: {{ rule.ExpirationDate | d({'Ref': 'AWS::NoValue'}) }}
+            ExpirationInDays: {{ rule.ExpirationInDays | d({'Ref': 'AWS::NoValue'}) }}
+            Id: {{ base_rule_id }}-x{{ loop.index }}
+            NoncurrentVersionExpirationInDays: {{ rule.NoncurrentVersionExpirationInDays | d({'Ref': 'AWS::NoValue'}) }}
+            Prefix: {{ rule.Prefix | d({'Ref': 'AWS::NoValue'}) }}
+            Status: {{ rule.Status }}
+            {% if rule.Transitions is defined %}
+            Transitions:
+              {% for transition in rule.Transitions %}
+                - TransitionInDays: {{ transition.TransitionInDays }}
+                  StorageClass: {{ transition.StorageClass }}
+              {% endfor %}
+            {% endif %}
+          {% endfor %}
+      {% endif %}
+      {% if resource.Properties.VersioningConfiguration is defined %}
+      VersioningConfiguration:
+        Status: {{ resource.Properties.VersioningConfiguration.Status }}
+      {% endif %}
+      {% if resource.Properties.IntelligentTieringConfiguration is defined %}
+      IntelligentTieringConfigurations:
+        {% for IntelligentTieringConfig in resource.Properties.IntelligentTieringConfiguration %}
+        - Id: {{ IntelligentTieringConfig.Id }}
+          Status: {{ IntelligentTieringConfig.Status }}
+          Tierings: {{ IntelligentTieringConfig.Tierings }}
+          {% if IntelligentTieringConfig.Prefix is defined %}
+          Prefix: {{ IntelligentTieringConfig.Prefix }}
+          {% endif %}
+          {% if IntelligentTieringConfig.TagFilters is defined %}
+          TagFilters:
+            {% for TagFilter in IntelligentTieringConfig.TagFilters %}
+              - Key: {{ TagFilter.Key }}
+                Value: {{ TagFilter.Value }}
+            {% endfor %}
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+      {% if resource.Properties.NotificationConfiguration is defined %}
+      NotificationConfiguration:
+        {% if resource.Properties.NotificationConfiguration.LambdaConfigurations is defined %}
+        LambdaConfigurations:
+          {% for LambdaConfiguration in resource.Properties.NotificationConfiguration.LambdaConfigurations %}
+          - Event: {{ LambdaConfiguration.Event | d('s3:ObjectCreated:*') }} 
+            {% if LambdaConfiguration.Filter is defined %}
+            Filter:
+              S3Key:
+                Rules:
+                  Name: {{ LambdaConfiguration.Filter.S3KeyName }}
+                  Value: {{ LambdaConfiguration.Filter.S3KeyValue }}
+            {% endif %}
+            Function: {{ LambdaConfiguration.Function }}
+          {% endfor %}
+        {% endif %}
+      {% endif %}
+      {% endif %}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - Fn::If:
+            - KmsKeyExists
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: aws:kms
+                KMSMasterKeyID:
+                  Ref: KmsKeyArn
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+
+  BucketKmsEncryptionPolicy:
+    Condition: KmsKeyExists
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: KmsEncryptionPolicy
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - Fn::Sub: "${Bucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+          - Sid: DenyIncorrectEncryptionHeader
+            Effect: Deny
+            Principal: "*"
+            Action: s3:PutObject
+            Resource:
+              Fn::Sub: "${Bucket.Arn}/*"
+            Condition:
+              # DENY if server side encryption is defined and not aws:kms
+              'Null':
+                s3:x-amz-server-side-encryption: false
+              StringNotEquals:
+                s3:x-amz-server-side-encryption: aws:kms
+          - Sid: DenyOtherKmsKey
+            Effect: Deny
+            Principal: "*"
+            Action: s3:PutObject
+            Resource:
+              Fn::Sub: "${Bucket.Arn}/*"
+            Condition:
+              # DENY if kms key id is defined and not our KMS key
+              'Null':
+                s3:x-amz-server-side-encryption-aws-kms-key-id: false
+              StringNotEquals:
+                s3:x-amz-server-side-encryption-aws-kms-key-id:
+                  Ref: KmsKeyArn
+
+  BucketAesEncryptionPolicy:
+    Condition: KmsKeyDoesNotExist
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: AES256EncryptionPolicy
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - Fn::Sub: "${Bucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+          - Sid: DenyIncorrectEncryptionHeader
+            Effect: Deny
+            Principal: "*"
+            Action: s3:PutObject
+            Resource:
+                Fn::Sub: "${Bucket.Arn}/*"
+            Condition:
+              # DENY if server side encryption is defined and not AES256
+              'Null':
+                s3:x-amz-server-side-encryption: false
+              StringNotEquals:
+                s3:x-amz-server-side-encryption: AES256
+
+Outputs:
+  BucketName:
+    Value:
+      Ref: Bucket
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BucketName"
+
+  BucketArn:
+    Value:
+      Fn::GetAtt: [ Bucket, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BucketArn"
+
+  BucketS3Url:
+    Value:
+      Fn::Sub: "s3://${Bucket}"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BucketS3Url"

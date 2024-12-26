@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::Serverless - {{ component_name }} - security rules
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  ResourcesStackName:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+  Stage:
+    Type: String
+    Default: "final"
+
+Conditions:
+  KmsKeyExists: { "Fn::Not": [ "Fn::Equals": [ Ref: KmsKeyArn, "" ] ] }
+
+Resources:
+  DefaultImport:
+    Metadata:
+      DefaultImport:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:DefaultExport"
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+  # Base KMS key policy
+  KmsBasePolicy:
+    Type: AWS::IAM::Policy
+    Condition: KmsKeyExists
+    Properties:
+      PolicyName: base-kms-{{ context.Build }}
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Allow use of the KMS key
+          - Effect: Allow
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:ReEncrypt*
+            Resource:
+              - Ref: KmsKeyArn
+      Roles:
+        - Fn::ImportValue:
+            Fn::Sub: ${SecurityStackName}:RoleName
+
+  # Default role rules
+  RoleBasePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: base-{{ context.Build }}
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Allow logging to CloudWatch
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - cloudwatch:PutMetricData
+              - cloudwatch:PutMetricAlarm
+            Resource:
+              - "*"
+
+          # Allow management of ENIs (for VPC)
+          - Effect: Allow
+            Action:
+              - ec2:CreateNetworkInterface
+              - ec2:DeleteNetworkInterface
+              - ec2:DescribeNetworkInterfaces
+              - ec2:DetachNetworkInterface
+            Resource:
+              - "*"
+
+          # Allow description of resources
+          - Effect: Allow
+            Action:
+              - ec2:Describe*
+            Resource:
+              - "*"
+
+          # Allow Ansible aws_s3 module to perform HEAD Operation at the bucket level
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+            Resource:
+              - "arn:aws:s3:::{{ context.FilesBucketName }}"
+
+          # Allow retrieval of files
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource:
+              - "arn:aws:s3:::{{ context.FilesBucketName }}/{{ context.SharedFilesPrefix }}/*"
+              - "arn:aws:s3:::{{ context.FilesBucketName }}/{{ context.BuildFilesPrefix }}/*"
+
+          # Allow lambda to access certain SSM PS paths
+          # See https://docs.aws.amazon.com/systems-manager/latest/userguide/sysman-paramstore-su-organize.html
+          - Effect: Allow
+            Action:
+              - ssm:GetParameter
+              - ssm:GetParametersByPath
+              - ssm:PutParameter
+            Resource:
+              - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/{{ context.Portfolio }}/{{ context.App }}/*"
+
+          # Secrets Manager
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource:
+              - Fn::Sub: "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:{{ context.Portfolio }}-{{ context.App }}-*"
+
+          {% if 'DefaultIamPolicyStatements' in context %}
+          # Default IAM policy statements
+          {{ context.DefaultIamPolicyStatements | to_yaml | indent(10) }}
+          {% endif %}
+      Roles:
+        - Fn::ImportValue:
+            Fn::Sub: ${SecurityStackName}:RoleName
+
+  {% set function_name = [ context.Portfolio, context.App, context.BranchShortName, component_name ] | join("-") %}
+  {% for rule in app[component_name].Configuration.Function | iam_rules %}
+  IamPolicy{{ loop.index }}:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: {{ component_name }}-{{ context.Build }}-x{{ loop.index }}
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              {% if 'invoke' in rule.Allow %}
+              - lambda:InvokeFunction
+              {% endif %}
+            Resource:
+              # Lambda function
+              - Fn::Sub: "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:{{ function_name }}"
+              # Lambda function versions and aliases
+              - Fn::Sub: "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:{{ function_name }}:*"
+      Roles:
+        - Fn::ImportValue: "{{ rule.Value }}"   # {{ rule.Description }}
+
+  {% endfor %}

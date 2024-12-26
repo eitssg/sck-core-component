@@ -1,0 +1,30 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::ApplicationLoadBalancer - {{ component_name }} - security items
+
+Resources:
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Load balancer security group
+      VpcId:
+        {% if (app[component_name].Configuration.ApplicationLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:VpcId"
+        {% else %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {% endif %}
+
+Outputs:
+  DefaultExport:
+    Value:
+      Ref: AWS::StackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DefaultExport"
+
+  SecurityGroupId:
+    Value:
+      Ref: SecurityGroup
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:SecurityGroupId"

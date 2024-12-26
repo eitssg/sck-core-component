@@ -1,0 +1,279 @@
+{% from "AWS/_shared/macros/agent_files.j2" import agent_files with context %}
+{% from "AWS/_shared/macros/agent_sources.j2" import agent_sources with context %}
+{% from "AWS/_shared/macros/agent_commands.j2" import agent_commands with context %}
+{% from "AWS/_shared/macros/agent_packages.j2" import agent_packages with context %}
+{% from "AWS/_shared/macros/agent_services.j2" import agent_services with context %}
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% macro include_userdata(image_name, metadata_resource, resource_to_signal) %}
+{% if 'amazon-linux' in image_name or 'rhel' in image_name or 'centos' in image_name %}
+{% include "AWS/LoadBalancedInstances/userdata/instance-linux.sh" %}
+{% elif 'win' in image_name %}
+{% include "AWS/Instance/userdata/instance-windows.ps1" %}
+{% else %}
+{{ raise("Unknown image '" + image_name + "', cannot load userdata") }}
+{% endif %}
+{% endmacro %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::LoadBalancedInstances - {{ component_name }} - resources
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Resources:
+  # Load balancer
+  {% set resource = app[component_name].Configuration.LoadBalancer %}
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancing::LoadBalancer
+    Properties:
+      {% if 'AccessLoggingPolicy' in resource.Properties %}
+      AccessLoggingPolicy:
+        {{ resource.Properties.AccessLoggingPolicy | to_yaml | indent(8) }}
+      {% endif %}
+      {% if 'ConnectionSettings' in resource.Properties %}
+      ConnectionSettings:
+        IdleTimeout: {{ resource.Properties.ConnectionSettings.IdleTimeout | d(60) }}
+      {% endif %}
+      CrossZone: true
+      HealthCheck:
+        HealthyThreshold: {{ resource.Properties.HealthCheck.HealthyThreshold | d(3) }}
+        Interval: {{ resource.Properties.HealthCheck.Interval | d(15) }}
+        Target: {{ resource.Properties.HealthCheck.Target }}
+        Timeout: {{ resource.Properties.HealthCheck.Timeout | d(5) }}
+        UnhealthyThreshold: {{ resource.Properties.HealthCheck.UnhealthyThreshold | d(5) }}
+      Instances:
+        {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('Instance') %}
+        - Ref: {{ resource_name }}
+        {% endfor %}
+      {% if 'LBCookieStickinessPolicy' in resource.Properties %}
+      LBCookieStickinessPolicy:
+        {{ resource.Properties.LBCookieStickinessPolicy | to_yaml | indent(8) }}
+      {% endif %}
+      {% if 'AppCookieStickinessPolicy' in resource.Properties %}
+      AppCookieStickinessPolicy:
+        {{ resource.Properties.AppCookieStickinessPolicy | to_yaml | indent(8) }}
+      {% endif %}
+      Listeners:
+        {% for listener in resource.Properties.Listeners %}
+        - InstancePort: "{{ listener.InstancePort }}"
+          InstanceProtocol: "{{ listener.InstanceProtocol | d(listener.Protocol) }}"
+          LoadBalancerPort: "{{ listener.LoadBalancerPort }}"
+          {% if listener.PolicyNames is defined %}
+          PolicyNames: {{ listener.PolicyNames }}
+          {% endif %}
+          Protocol: "{{ listener.Protocol }}"
+          {% if listener.SSLCertificateId is defined %}
+          SSLCertificateId: {{ listener.SSLCertificateId }}
+          {% endif %}
+        {% endfor %}
+      {% if 'Policies' in resource.Properties %}
+      Policies:
+        {{ resource.Properties.Policies | to_yaml | indent(8) }}
+      {% endif %}
+      Scheme: {{ resource.Properties.Scheme | d('internal') }}
+      SecurityGroups:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:LbSecurityGroupId"
+        {% for rule in resource | ip_rules(source_types=['sg-attachment']) %}
+        - Fn::ImportValue: "{{ rule.Value }}"   # {{ rule.Description }}
+        {% endfor %}
+      Subnets:
+        {% if (app[component_name].Configuration.LoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['public'] }}1Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['public'] }}2Id"
+        {% if context.AzCount >= 3 %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['public'] }}3Id"
+        {% endif %}
+        {% else %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}2Id"
+        {% if context.AzCount >= 3 %}
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}3Id"
+        {% endif %}
+        {% endif %}
+
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('Instance') %}
+  {% set image_alias = resource.Properties.ImageId | image_name %}
+  # Instance
+  {{ resource_name }}:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      {{ resource.DependsOn | default([]) | to_yaml | indent(6) }}
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          default:
+            - pre
+            - agents
+            {% if 'config' in resource | extract('Metadata."AWS::CloudFormation::Init"', {}) %}
+            - config
+            {% endif %}
+            {% if 'win' in image_alias %}
+            - finalise
+            {% endif %}
+        pre:
+          commands:
+            00-init:
+              command: echo "Performing pre config"
+            {% if 'rhel-7' in image_alias %}
+            01-enable-rhel7-repos:
+              command: "yum-config-manager --enable rhui-REGION-rhel-server-extras && yum-config-manager --enable rhui-REGION-rhel-server-releases && yum clean all"
+            {% endif %}
+        agents:
+          packages:
+            {{ agent_packages(resource, image_alias, context) | indent(12) }}
+          files:
+            {{ agent_files(resource, component_name, image_alias, context, 'install') | indent(12) }}
+          sources:
+            {{ agent_sources(resource, context) | indent(12) }}
+          commands:
+            {{ agent_commands(resource, image_alias, context, 'install') | indent(12) }}
+          services:
+            {{ agent_services(resource, image_alias, context, 'install') | indent(12) }}
+        finalise:
+          commands:
+            00-signal-success:
+              command: !Sub 'cfn-signal.exe -e 0 --region ${AWS::Region} --stack ${AWS::StackId} --resource Instance'
+              waitAfterCompletion: '0'
+        {% if 'Metadata' in resource %}
+        {% if "AWS::CloudFormation::Init" in resource.Metadata %}
+        {{ resource | extract('Metadata."AWS::CloudFormation::Init"', {}) | process_cfn_init | to_yaml | indent(8) }}
+        {% endif %}
+        {% endif %}
+      AWS::CloudFormation::Authentication:
+        S3AccessAuth:
+          type: s3
+          roleName:
+            Fn::ImportValue:
+              Fn::Sub: "${SecurityStackName}:RoleName"
+          buckets:
+            - "{{ context.FilesBucketName }}"
+    CreationPolicy:
+      ResourceSignal:
+        Count: {{ resource | extract('CreationPolicy.ResourceSignal.Count', '1') }}
+        {% if 'win' in image_alias %}
+        Timeout: {{ resource | extract('CreationPolicy.ResourceSignal.Timeout', 'PT60M') }}
+        {% else %}
+        Timeout: {{ resource | extract('CreationPolicy.ResourceSignal.Timeout', 'PT15M') }}
+        {% endif %}
+    Properties:
+      {% if 'BlockDeviceMappings' in resource.Properties %}
+      BlockDeviceMappings:
+        {{ resource.Properties.BlockDeviceMappings | ebs_encrypt | to_yaml | indent(8) }}
+      {% endif %}
+      IamInstanceProfile:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:InstanceProfileName"
+      ImageId: "{{ resource.Properties.ImageId | image_id }}"
+      InstanceInitiatedShutdownBehavior: stop
+      InstanceType: "{{ resource.Properties.InstanceType }}"
+      {% if 'KeyName' in resource.Properties %}
+      KeyName: {{ resource.Properties.KeyName }}
+      {% endif %}
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:SecurityGroupId"
+        {% for rule in resource | ip_rules(source_types=['sg-attachment']) %}
+        - Fn::ImportValue: "{{ rule.Value }}"   # {{ rule.Description }}
+        {% endfor %}
+      SubnetId:
+        {% if (app[component_name].Configuration.LoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['app'] }}{{ (resource.Properties.SubnetId | subnet_az_index) + 1 }}Id"
+        {% else %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}{{ (resource.Properties.SubnetId | subnet_az_index) + 1 }}Id"
+        {% endif %}
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            {{ include_userdata(resource.Properties.ImageId | image_name, resource_name, resource_name) | indent(12) }}
+
+  # Log group metric filters
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('LogGroupMetricFilter') %}
+  {{ resource_name }}:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      FilterPattern: {{ resource.Properties.FilterPattern }}
+      LogGroupName: {{ names.log_group_name }}
+      MetricTransformations:
+      {% for transformation in resource.Properties.MetricTransformations %}
+        - MetricValue: {{ transformation.MetricValue }}
+          {% if transformation.DefaultValue is defined %}
+          DefaultValue: {{ transformation.DefaultValue }}
+          {% endif %}
+          MetricName: {{ transformation.MetricName }}
+          MetricNamespace: {{ names.log_group_name }}
+      {% endfor %}
+  {% endfor %}
+
+  # Alarms
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('Alarm') %}
+  {% set namespace = names.log_group_name if resource_name.endswith('LogGroupMetricAlarm') else resource.Properties.Namespace | d('AWS/EC2') %}
+  {{ resource_name }}:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      {% if resource.Properties.AlarmName is defined %}
+      AlarmName: "{{ resource.Properties.AlarmName }}"
+      {% endif %}
+      {% if resource.Properties.AlarmDescription is defined %}
+      AlarmDescription: "{{ resource.Properties.AlarmDescription }}"
+      {% endif %}
+      ActionsEnabled: true
+      AlarmActions:
+        {{ resource.Properties.AlarmActions | to_yaml | indent(8) }}
+      ComparisonOperator: {{ resource.Properties.ComparisonOperator }}
+      Dimensions:
+        {% for dimensions in resource.Properties.Dimensions %}
+        - Name: {{ dimensions.Name }}
+          Value: {{ dimensions.Value }}
+        {% endfor %}
+      EvaluationPeriods: {{ resource.Properties.EvaluationPeriods | d(3) }}
+      MetricName: {{ resource.Properties.MetricName | d('CPUUtilization') }}
+      Namespace: {{ namespace }}
+      Period: {{ resource.Properties.Period | d(60, true) }}
+      Statistic: {{ resource.Properties.Statistic | d('Average', true) }}
+      Threshold: {{ resource.Properties.Threshold }}
+  {% endfor %}
+  {% endfor %}
+
+  # Log group metric filters
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('LogGroupMetricFilter') %}
+  {{ resource_name }}:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      FilterPattern: {{ resource.Properties.FilterPattern | to_yaml }}
+      LogGroupName: {{ names.log_group_name }}
+      MetricTransformations:
+      {% for transformation in resource.Properties.MetricTransformations %}
+        - MetricValue: "{{ transformation.MetricValue }}"
+          MetricName: "{{ transformation.MetricName }}"
+          MetricNamespace: "{{ names.log_group_name }}"
+      {% endfor %}
+
+  {% endfor %}
+
+Outputs:
+  LoadBalancerDnsName:
+    Value:
+      Fn::GetAtt: [ LoadBalancer, DNSName ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LoadBalancerDnsName"
+
+  LoadBalancerHostedZoneId:
+    Value:
+      Fn::GetAtt: [ LoadBalancer, CanonicalHostedZoneNameID ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LoadBalancerHostedZoneId"
+
+  LoadBalancerName:
+    Value:
+      Ref: LoadBalancer
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LoadBalancerName"

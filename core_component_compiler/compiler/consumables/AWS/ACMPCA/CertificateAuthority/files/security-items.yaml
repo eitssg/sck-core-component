@@ -1,0 +1,42 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::ACMPCA::CertificateAuthority - {{ component_name }} - security items
+
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - acm.amazonaws.com
+        Version: "2012-10-17"
+      Path: "/"
+      {% if 'DefaultManagedPolicyArns' in context %}
+      # Default Managed policy ARNs
+      ManagedPolicyArns:
+        {{ context.DefaultManagedPolicyArns | to_yaml | indent(8) }}
+      {% endif %}
+
+Outputs:
+  DefaultExport:
+    Value:
+      Ref: AWS::StackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DefaultExport"
+  RoleArn:
+    Value:
+      Fn::GetAtt: [ Role, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:RoleArn"
+  RoleName:
+    Value:
+      Ref: Role
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:RoleName"

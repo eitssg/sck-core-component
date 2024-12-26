@@ -1,0 +1,81 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::StaticWebsite - {{ component_name }} - release
+
+Parameters:
+  PointersStackName:
+    Type: String
+
+Resources:
+
+  # Private release DNS record
+  PrivateReleaseDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName:
+          Fn::ImportValue:
+            Fn::Sub: "${PointersStackName}:DistributionDomainName"
+        EvaluateTargetHealth: false
+        HostedZoneId: Z2FDTNDATAQYW2    # CloudFront
+      Type: A
+      HostedZoneId:
+        Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:HostedZoneId
+      Name:
+        Fn::Sub:
+          - "{{ names.release_dns_prefix }}.${RegionalHostedZoneName}"
+          - RegionalHostedZoneName:
+              Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:RegionalHostedZoneName
+
+  # Public release DNS record
+  PublicReleaseDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName:
+          Fn::ImportValue:
+            Fn::Sub: "${PointersStackName}:DistributionDomainName"
+        EvaluateTargetHealth: false
+        HostedZoneId: Z2FDTNDATAQYW2    # CloudFront
+      Type: A
+      HostedZoneId:
+        Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:PublicOnlyHostedZoneId
+      Name:
+        Fn::Sub:
+          - "{{ names.release_dns_prefix }}.${PublicOnlyRegionalHostedZoneName}"
+          - PublicOnlyRegionalHostedZoneName:
+              Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:PublicOnlyRegionalHostedZoneName
+
+Outputs:
+  Build:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${PointersStackName}:Build"
+
+  BaseStackName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${PointersStackName}:BaseStackName"
+
+  BucketStackName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${PointersStackName}:BucketStackName"
+
+  CloudFrontStackName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${PointersStackName}:CloudFrontStackName"
+
+  PointersStackName:
+    Value:
+      Ref: PointersStackName
+
+  PrivateReleaseDns:
+    Value:
+      Ref: PrivateReleaseDnsRecord
+
+  PublicReleaseDns:
+    Value:
+      Ref: PublicReleaseDnsRecord

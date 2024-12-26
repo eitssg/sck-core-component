@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::SQS::Queue - {{ component_name }} - resources
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Conditions:
+  KmsKeyExists: { "Fn::Not": [ "Fn::Equals": [ Ref: KmsKeyArn, "" ] ] }
+
+Resources:
+  # SQS Queue
+  {% set resource = app[component_name].Configuration.Queue %}
+  Queue:
+    Type: AWS::SQS::Queue
+    Properties:
+      DelaySeconds: {{ resource.Properties.DelaySeconds | d(0) }}
+      KmsMasterKeyId:
+        Fn::If:
+          - KmsKeyExists
+          - Ref: KmsKeyArn
+          - Ref: "AWS::NoValue"
+      {% if 'KmsDataKeyReusePeriodSeconds' in resource.Properties %}
+      KmsDataKeyReusePeriodSeconds:
+        Fn::If:
+          - KmsKeyExists
+          - {{ resource.Properties.KmsDataKeyReusePeriodSeconds }}
+          - Ref: "AWS::NoValue"
+      {% endif %}
+      MaximumMessageSize: {{ resource.Properties.MaximumMessageSize | d(262144) }}
+      MessageRetentionPeriod: {{ resource.Properties.MessageRetentionPeriod | d(345600) }}
+      {% if 'FifoQueue' in resource.Properties and resource.Properties.FifoQueue == True and 'ContentBasedDeduplication' in resource.Properties %}
+      ContentBasedDeduplication: {{resource.Properties.ContentBasedDeduplication}}
+      {% endif %}
+      {% if 'Queue_postfix' in resource.Properties and 'FifoQueue' in resource.Properties and resource.Properties.FifoQueue == True %}
+      QueueName: "{{ context.Portfolio }}-{{ context.App }}-{{ context.BranchShortName }}-{{ context.Build }}-{{ resource.Properties.Queue_postfix }}.fifo"
+      FifoQueue: {{ resource.Properties.FifoQueue}}
+      {% elif 'FifoQueue' in resource.Properties and resource.Properties.FifoQueue == True %}
+      QueueName: "{{ context.Portfolio }}-{{ context.App }}-{{ context.BranchShortName }}-{{ context.Build }}-{{ component_name }}.fifo"
+      FifoQueue: {{ resource.Properties.FifoQueue}}
+      {% elif 'Queue_postfix' in resource.Properties %}
+      QueueName: "{{ context.Portfolio }}-{{ context.App }}-{{ context.BranchShortName }}-{{ context.Build }}-{{ component_name }}-{{ resource.Properties.Queue_postfix }}"
+      {% else %}
+      QueueName: "{{ context.Portfolio }}-{{ context.App }}-{{ context.BranchShortName }}-{{ context.Build }}-{{ component_name }}"
+      {% endif %}
+      ReceiveMessageWaitTimeSeconds: {{ resource.Properties.ReceiveMessageWaitTimeSeconds | d(0) }}
+      VisibilityTimeout: {{ resource.Properties.VisibilityTimeout | d(30) }}
+Outputs:
+  QueueArn:
+    Value:
+      Fn::GetAtt: [ Queue, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:QueueArn"
+
+  QueueName:
+    Value:
+      Fn::GetAtt: [ Queue, QueueName ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:QueueName"
+
+  QueueUrl:
+    Value:
+      Ref: Queue
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:QueueUrl"

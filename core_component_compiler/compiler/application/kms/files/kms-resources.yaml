@@ -1,0 +1,91 @@
+{% if context | extract('Kms.AwsAccountId', None) %}
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "{{ context.Portfolio }}-{{ context.App }}-{{ context.Environment }} - KMS key"
+
+Resources:
+
+  KmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: "{{ context.Portfolio }}-{{ context.App }}-{{ context.Environment }}"
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Id: KeyPolicy
+        Statement:
+          - Sid: Full permissions for account hosting the key
+            Effect: Allow
+            Principal:
+              AWS:
+                - Fn::Sub: "arn:aws:iam::${AWS::AccountId}:root"
+            Action:
+              - kms:*
+            Resource: "*"
+          {% if 'AllowSNS' in context.Kms and context.Kms.AllowSNS == True%}
+          - Sid: Allow access to SNS Service Principal
+            Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+            Action:
+              - kms:GenerateDataKey*
+              - kms:Decrypt
+            Resource: "*"
+          {% endif %}
+          {% if context.Kms.DelegateAwsAccountIds | ensure_list | length > 0 %}
+          - Sid: Delegate use of key to selected accounts
+            Effect: Allow
+            Principal:
+              AWS:
+                {% for account in context.Kms.DelegateAwsAccountIds %}
+                - arn:aws:iam::{{ account }}:root
+                {% endfor %}
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:ReEncrypt*
+            Resource: "*"
+
+          - Sid: Delegate grants to selected accounts
+            Effect: Allow
+            Principal:
+              AWS:
+                {% for account in context.Kms.DelegateAwsAccountIds %}
+                - arn:aws:iam::{{ account }}:root
+                {% endfor %}
+            Action:
+              - kms:CreateGrant
+              - kms:ListGrants
+              - kms:ListRetirableGrants
+              - kms:RetireGrant
+              - kms:RevokeGrant
+            Resource: "*"
+            Condition:
+              Bool:
+                kms:GrantIsForAWSResource: true
+          {% endif %}
+
+  KmsKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: "alias/{{ context.Portfolio }}-{{ context.App }}-{{ context.Environment }}"
+      TargetKeyId:
+        Ref: KmsKey
+
+Outputs:
+  KmsKeyName:
+    Value:
+      Ref: KmsKey
+
+  KmsKeyArn:
+    Value:
+      Fn::GetAtt: [ KmsKey, Arn ]
+
+  KmsKeyAliasName:
+    Value:
+      Ref: KmsKeyAlias
+{% else %}
+# KMS is not configured for this deployment, skipping template generation
+{% endif %}

@@ -1,0 +1,137 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set status_details = { "Scope": "component", "Consumable": app[component_name].Type, "Environment": context.Environment } %}
+
+# (bake image) Create/update the security rules stack for the bake instance
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/bake-security-rules"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/start"
+  Condition: "{{ 'BakeInstance' in app[component_name].Configuration or 'DefaultAutoScalingGroupBakeInstance' in app[component_name].Configuration }} and ('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.security_rules_stack_name }}"
+    StackParameters:
+      KmsKeyArn: "{{ '{{' }} '{{ context.BuildPrn }}:output/KmsKeyArn' | lookup('') {{ '}}' }}"
+      SecurityStackName: "{{ names.security_items_stack_name }}"
+      Stage: "bake"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/security-rules.yaml"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating bake security rules
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created bake security rules
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create bake security rules
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# (bake image) Create the bake stack
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/bake-instance"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/bake-security-rules"
+    - "{{ context.ComponentPrn }}:action/deploy/main/upload-context"
+    - "{{ context.ComponentPrn }}:action/deploy/main/log-groups"
+  Condition: "{{ 'BakeInstance' in app[component_name].Configuration or 'DefaultAutoScalingGroupBakeInstance' in app[component_name].Configuration }} and ('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.bake_stack_name }}"
+    StackParameters:
+      KmsKeyArn: "{{ '{{' }} '{{ context.BuildPrn }}:output/KmsKeyArn' | lookup('') {{ '}}' }}"
+      SecurityStackName: "{{ names.security_items_stack_name }}"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/bake.yaml"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating bake instance
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created bake instance
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create bake instance
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+{% if 'BakeInstance' in app[component_name].Configuration or 'DefaultAutoScalingGroupBakeInstance' in app[component_name].Configuration %}
+# (bake image) Bake the image
+{% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('BakeInstance') %}
+- Type: AWS::CreateImage
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/{{ resource_name }}bake-image"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/bake-instance"
+  Before:
+    - "{{ context.ComponentPrn }}:action/deploy/main/base-security-rules"
+    - "{{ context.ComponentPrn }}:action/deploy/main/resources"
+  Condition: "{{ 'BakeInstance' in app[component_name].Configuration or 'DefaultAutoScalingGroupBakeInstance' in app[component_name].Configuration }} and ('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    ImageName: "{{ resource_name }}{{ names.image_name }}"
+    InstanceId: "{{ '{{' }} '{{ context.ComponentPrn }}:var/deploy/main/bake-instance/{{ resource_name }}InstanceId' | lookup {{ '}}' }}"
+    Region: "{{ context.AwsRegion }}"
+    Tags:
+      {{ 'build' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Creating image
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Created image
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to create image
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+{% endfor %}
+{% endif %}
+
+# (bake image) Delete the bake stack
+- Type: AWS::DeleteStack
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/delete-bake-instance"
+  DependsOn:
+    {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('BakeInstance') %}
+    - "{{ context.ComponentPrn }}:action/deploy/main/{{ resource_name }}bake-image"
+    {% endfor %}
+  Condition: "{{ 'BakeInstance' in app[component_name].Configuration or 'DefaultAutoScalingGroupBakeInstance' in app[component_name].Configuration }} and ('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.bake_stack_name }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Deleting bake stack
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Deleted bake stack
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to delete the bake stack
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

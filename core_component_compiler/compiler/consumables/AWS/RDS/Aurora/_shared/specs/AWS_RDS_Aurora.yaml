@@ -1,0 +1,46 @@
+---
+# Currently the same for both MySQL and PostgreSQL modes.
+
+AWS::RDS::DBClusterParameterGroup::Aurora:
+  Properties:
+    Description:
+      _Type: string
+    Family:
+      _Type: string
+      _StringRegex: 'aurora(.+)'
+    Parameters:
+      _Required: false
+      Parameter:
+        _KeyRegex: '.*'
+        _KeyCardinality: 0+
+        _Type: scalar
+
+AWS::RDS::DBParameterGroup::Aurora:
+  Properties:
+    Description:
+      _Type: string
+    Family:
+      _Type: string
+      _StringRegex: 'aurora(.+)'
+    Parameters:
+      _Required: false
+      Parameter:
+        _KeyRegex: '.*'
+        _KeyCardinality: 1+
+        _Type: scalar
+
+AWS::RDS::DBCluster::ScalingConfiguration::Aurora:
+  AutoPause:
+    _Type: boolean
+    _Required: false
+  MaxCapacity:
+    _Type: int
+    _Required: false
+    _IntEnum: [1, 2, 4, 8, 16, 32, 64, 128, 256]
+  MinCapacity:
+    _Type: float
+    _Required: false
+    _FloatEnum: [0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256]
+  SecondsUntilAutoPause:
+    _Type: int
+    _Required: false

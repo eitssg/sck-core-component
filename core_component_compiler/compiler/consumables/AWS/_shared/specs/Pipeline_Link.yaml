@@ -1,0 +1,4 @@
+Pipeline::Link:
+  Pipeline::Link:
+    Component:
+      _Type: string

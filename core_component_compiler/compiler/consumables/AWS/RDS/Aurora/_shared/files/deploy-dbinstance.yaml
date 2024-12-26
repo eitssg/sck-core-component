@@ -1,0 +1,45 @@
+  # ----------
+  # Instance Resources
+  # ----------
+
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('DbInstance') %}
+  {{ resource_name }}:
+    Type: AWS::RDS::DBInstance
+    {% if 'DependsOn' in resource %}
+    DependsOn:
+      {{ resource.DependsOn | to_yaml | indent(6) }}
+    {% endif %}
+    Properties:
+      AllowMajorVersionUpgrade: {{ resource.Properties.AllowMajorVersionUpgrade | d({ 'Ref': 'AWS::NoValue' }) }}
+      AutoMinorVersionUpgrade: {{ resource.Properties.AutoMinorVersionUpgrade | d({ 'Ref': 'AWS::NoValue' }) }}
+      DBClusterIdentifier: !Ref DbCluster
+      DBInstanceClass: {{ resource.Properties.DBInstanceClass }}
+      {% if 'ParameterGroup' in app[component_name].Configuration %}
+      DBParameterGroupName:
+        Ref: DbInstanceParameterGroup
+      {% endif %}
+      {% if 'DBSnapshotIdentifier' in resource.Properties %}
+      DBSnapshotIdentifier: {{ resource.Properties.DBSnapshotIdentifier }}
+      {% endif %}
+      {% if 'CACertificateIdentifier' in resource.Properties %}
+      CACertificateIdentifier: {{ resource.Properties.CACertificateIdentifier }}
+      {% endif %}
+      DBSubnetGroupName:
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:DbSubnetGroupName"
+      Engine: {{ resource.Properties.Engine }}
+      {% if 'EngineVersion' in resource.Properties %}
+      EngineVersion: {{ resource.Properties.EngineVersion | d({ 'Ref': 'AWS::NoValue' }) }}
+      {% endif %}
+      {% if 'EnablePerformanceInsights' in resource.Properties %}
+      EnablePerformanceInsights: {{ resource.Properties.EnablePerformanceInsights | d({ 'Ref': 'AWS::NoValue' }) }}
+      {% endif %}
+      {% if resource.Properties.MonitoringInterval | d(60) != 0 %}
+      MonitoringInterval: {{ resource.Properties.MonitoringInterval | d(60) }}
+      MonitoringRoleArn:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:MonitoringRoleArn"
+      {% endif %}
+      # Amazon Aurora storage is replicated across all the Availability Zones and doesn't require the MultiAZ option to be set.
+      PubliclyAccessible: false
+
+  {% endfor %}

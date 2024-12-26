@@ -1,0 +1,2 @@
+{% include "AWS/_shared/actions/teardown-persist.actions" %}
+{% include "AWS/_shared/actions/addons/teardown-log-groups.actions" %}

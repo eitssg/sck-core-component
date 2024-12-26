@@ -1,0 +1,63 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set status_details = { "Scope": "component", "Consumable": app[component_name].Type, "Environment": context.Environment } %}
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/release/start"
+  DependsOn:
+    - "{{ context.BuildPrn }}:action/pre-release/*"
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: RELEASE_IN_PROGRESS
+          Message: Component release started
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+# Create the release stack
+- Type: AWS::CreateStack
+  Label: "{{ context.ComponentPrn }}:action/release/main"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/release/start"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ names.release_stack_name }}"
+    TemplateUrl: "{{ context.ComponentUrlPrefix }}/release.yaml"
+    StackParameters:
+      PointersStackName: "{{ names.pointers_stack_name }}"
+    Tags:
+      {{ 'branch' | tags | to_yaml | indent(6) }}
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: RELEASE_IN_PROGRESS
+          Message: Creating release pointers
+        OnComplete:
+          Status: RELEASE_IN_PROGRESS
+          Message: Created release pointers
+        OnFailed:
+          Status: RELEASE_FAILED
+          Message: Failed to create release pointers
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+- Type: System::NoOp
+  Label: "{{ context.ComponentPrn }}:action/release/success"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/release/main"
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: RELEASE_COMPLETE
+          Message: Component release successful
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

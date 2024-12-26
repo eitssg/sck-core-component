@@ -1,0 +1,89 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::StaticWebsite - {{ component_name }} - buckets
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Resources:
+  DefaultImport:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Metadata:
+      DefaultImport:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:DefaultExport"
+
+  # CloudFront file origin bucket
+  FileBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # CloudFront access log bucket
+  LogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+Outputs:
+  DefaultExport:
+    Value:
+      Ref: AWS::StackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DefaultExport"
+
+  FileBucketArn:
+    Value:
+      Fn::GetAtt: [ FileBucket, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:FileBucketArn"
+
+  FileBucketName:
+    Value:
+      Ref: FileBucket
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:FileBucketName"
+
+  LogBucketArn:
+    Value:
+      Fn::GetAtt: [ LogBucket, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LogBucketArn"
+
+  LogBucketDomainName:
+    Value:
+      Fn::GetAtt: [ LogBucket, DomainName ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LogBucketDomainName"
+
+  LogBucketName:
+    Value:
+      Ref: LogBucket
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LogBucketName"
+
+  RegionalHostedZoneName:
+    Value:
+      Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:RegionalHostedZoneName
+
+  PublicOnlyRegionalHostedZoneName:
+    Value:
+      Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:PublicOnlyRegionalHostedZoneName

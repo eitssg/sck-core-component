@@ -1,0 +1,65 @@
+---
+AWS::Redshift::Cluster:
+  _Type: Component
+  Configuration:
+    RedshiftCluster:
+      Pipeline::Security:
+        _Type: Pipeline::IpSecurity
+        _Required: false
+      DeletionPolicy:
+        _Type: string
+        _Required: false
+        _StringEnum: [Snapshot, Delete]
+      Properties:
+        AllowVersionUpgrade:
+          _Type: boolean
+          _Required: false
+        AutomatedSnapshotRetentionPeriod:
+          _Type: int
+          _Required: false
+          _IntMinValue: 1
+          _IntMaxValue: 30
+        ClusterParameterGroupName:
+          _Type: string
+          _Required: false
+        ClusterType:
+          _Type: string
+          _Required: true
+          _StringEnum: [single-node, multi-node]
+        DBName:
+          _Type: string
+          _Required: true
+        KmsKeyId:
+          _Type: string
+          _Required: false
+        MasterUsername:
+          _Type: string
+          _Required: true
+          _StringLength: 1-128
+          _StringRegex: '[a-zA-Z][a-zA-Z0-9]*'
+        NodeType:
+          _Type: string
+          _Required: true
+          _StringEnum: [dc2.large, dc2.large, dc2.large, dc2.8xlarge, dc2.8xlarge, dc2.8xlarge, ds2.xlarge, ds2.xlarge, ds2.xlarge, ds2.8xlarge, ds2.8xlarge, ds2.8xlarge]
+        NumberOfNodes:
+          _Type: int
+          _Required:
+            Spec::Property: [ClusterType, multi-node]
+          _IntMinValue: 1
+          _IntMaxValue: 100
+        Port:
+          _Type: int
+          _Required: false
+          _IntMinValue: 1150
+          _IntMaxValue: 65535
+        PreferredMaintenanceWindow:
+          _Type: string
+          _Required: false
+          _StringRegex: '(Mon|Tue|Wed|Thu|Fri|Sat|Sun):[0-2][0-9]:[0-5][0-9]-(Mon|Tue|Wed|Thu|Fri|Sat|Sun):[0-2][0-9]:[0-5][0-9]'
+        SnapshotIdentifier:
+          _Type: Fn::Pipeline::SnapshotId
+          _Required: false
+
+    ParameterGroup:
+      _Required: false
+      _Type: AWS::Redshift::ClusterParameterGroup

@@ -1,0 +1,43 @@
+{% macro agent_files(resource, component_name, image_alias, context, mode) %}
+{% if 'win' in image_alias %}
+{% if mode == 'bake' %}
+C:\pipeline\etc\cloudwatch_agent.json:
+  source: "{{ context.FilesBucketUrl }}/{{ context.BuildFilesPrefix }}/{{ component_name }}/userfiles/cloudwatchagent/bake-cloudwatch_agent.json"
+{% else %}
+C:\pipeline\etc\cloudwatch_agent.json:
+  source: "{{ context.FilesBucketUrl }}/{{ context.BuildFilesPrefix }}/{{ component_name }}/userfiles/cloudwatchagent/deploy-cloudwatch_agent.json"
+{% endif %}
+C:\pipeline\etc\common-config.toml:
+  source: "{{ context.FilesBucketUrl }}/{{ context.BuildFilesPrefix }}/{{ component_name }}/userfiles/cloudwatchagent/common-config.toml"
+{% else %}
+/tmp/awscliv2.zip:
+  source: https://s3-ap-southeast-1.amazonaws.com/simple-core-automation-ap-southeast-1/files/shared/aws/awscliv2.zip
+{% if 'amazon-linux-2' in image_alias %}
+/tmp/amazon-cloudwatch-agent.rpm:
+  source: https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+{% endif %}
+{% if 'rhel' in image_alias %}
+/tmp/amazon-cloudwatch-agent.rpm:
+  source: https://s3.amazonaws.com/amazoncloudwatch-agent/redhat/amd64/latest/amazon-cloudwatch-agent.rpm
+{% endif %}
+/tmp/awslog_convert.py:
+  source: https://s3-ap-southeast-1.amazonaws.com/simple-core-automation-ap-southeast-1/files/shared/aws/awslog_convert.py
+/tmp/awslogs/common-config.toml:
+  source: "{{ context.FilesBucketUrl }}/{{ context.BuildFilesPrefix }}/{{ component_name }}/userfiles/awslogs/common-config.toml"
+{% if mode == 'bake' %}
+/tmp/awslogs/awslogs.conf:
+  source: "{{ context.FilesBucketUrl }}/{{ context.BuildFilesPrefix }}/{{ component_name }}/userfiles/awslogs/bake-awslogs.conf"
+{% else %}
+/tmp/awslogs/awslogs.conf:
+  source: "{{ context.FilesBucketUrl }}/{{ context.BuildFilesPrefix }}/{{ component_name }}/userfiles/awslogs/deploy-awslogs.conf"
+{% endif %}
+{% set agentlist = resource | extract('Metadata."Pipeline::Agents"', {}) %}
+{% for agentname, config in agentlist.items() %}
+{% set agent_context = context.get('Agents', {}).get(agentname, {}) %}
+{% if agentname == 'datadog' and agent_context.enabled == True and config.enabled == True %}
+/tmp/ansible/datadog.yaml:
+  source: "{{ context.FilesBucketUrl }}/{{ context.BuildFilesPrefix }}/{{ component_name }}/userfiles/ansible/datadog.yaml"
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endmacro %}

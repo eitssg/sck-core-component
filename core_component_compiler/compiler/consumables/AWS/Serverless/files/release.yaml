@@ -1,0 +1,112 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::Serverless - {{ component_name }} - release
+
+Resources:
+  # Release alias
+  ReleaseAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName:
+        Fn::ImportValue: "{{ names.pointers_stack_name }}:FunctionName"
+      FunctionVersion:
+        Fn::ImportValue: "{{ names.pointers_stack_name }}:DeploymentVersion"
+      Name: release
+
+  # Release CloudWatch Events rules
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('EventRule') %}
+  {% set scope = resource | extract('Properties.Targets[0].Arn."Fn::Pipeline::LambdaArn".Scope', 'build') %}
+  {% if scope == 'release' %}
+  {{ resource_name }}:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "{{ resource.Properties.Description | d(resource_name) }}"
+      ScheduleExpression: "{{ resource.Properties.ScheduleExpression }}"
+      Targets:
+        {% set target = resource | extract('Properties.Targets[0]', {}) %}
+        - Arn:
+            Ref: ReleaseAlias
+          Id: {{ resource_name }}Target
+          {% if 'Input' in target %}
+          Input:
+            {{ target.Input | to_yaml | indent(12) }}
+          {% endif %}
+          {% if 'InputPath' in target %}
+          InputPath:
+            {{ target.InputPath | to_yaml | indent(12) }}
+          {% endif %}
+          {% if 'InputTransformer' in target %}
+          InputTransformer:
+            {{ target.InputTransformer | to_yaml | indent(12) }}
+          {% endif %}
+
+  {{ resource_name }}Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: ReleaseAlias
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt: [{{ resource_name }}, Arn]
+
+  {% endif %}
+  {% endfor %}
+
+  # Release SNS topic subscriptions
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('TopicSubscription') %}
+  {% set scope = resource | extract('Properties.Endpoint."Fn::Pipeline::LambdaArn".Scope', 'build') %}
+  {% if scope == 'release' %}
+  {% set topic_component = resource | extract('Properties.TopicArn."Fn::Pipeline::GetOutput".Component') %}
+  {% set topic_name = resource | extract('Properties.TopicArn."Fn::Pipeline::GetOutput".OutputName') | regex_replace('Arn$', '') %}
+  {% set topic_name = [ context.Portfolio, context.App, context.BranchShortName, topic_component, topic_name ] | join("-") %}
+  {{ resource_name }}:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint:
+        Ref: ReleaseAlias
+      Protocol: lambda
+      TopicArn:
+        Fn::Sub: "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:{{ topic_name }}"
+
+  {{ resource_name }}Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: ReleaseAlias
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn:
+        Fn::Sub: "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:{{ topic_name }}"
+
+  {% endif %}
+  {% endfor %}
+
+Outputs:
+  Build:
+    Value: "{{ context.Build }}"
+
+  BaseStackName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "{{ names.pointers_stack_name }}:BaseStackName"
+
+  PointersStackName:
+    Value: "{{ names.pointers_stack_name }}"
+
+  ReleaseAliasArn:
+    Value:
+      Ref: ReleaseAlias
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:ReleaseAliasArn"
+
+  ReleaseDns:
+    Value:
+      "none"
+
+  ResourcesStackName:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "{{ names.pointers_stack_name }}:ResourcesStackName"

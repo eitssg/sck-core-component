@@ -1,0 +1,180 @@
+---
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set db_cluster_id = names.base_build_name_hyphenated | shorten_unique(63, unique_length=10) %}
+{% set component_type = app[component_name].Type %}
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::RDS::Aurora::PostgreSQL - {{ component_name }} - resources
+Parameters:
+
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Conditions:
+
+  KmsKeyExists: {"Fn::Not": ["Fn::Equals": [Ref: KmsKeyArn, ""]]}
+
+Resources:
+
+  # Aurora is an RDS DBCluster
+  {% set resource = app[component_name].Configuration.DbCluster %}
+  DbCluster:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: {{ resource.DeletionPolicy | d('Snapshot') }}
+    UpdateReplacePolicy: Retain
+    DependsOn:
+      - PostgreSQLLogGroup
+    Properties:
+      BackupRetentionPeriod: {{ resource.Properties.BackupRetentionPeriod | d(7) }}
+      DatabaseName: {{ resource.Properties.DatabaseName | d({ 'Ref': 'AWS::NoValue' }) }}
+      {% if 'MultiAZ' in resource.Properties and resource.Properties.MultiAZ == 'true' %}
+      # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-rds-dbcluster.html#cfn-rds-dbcluster-availabilityzones
+      AvailabilityZones:
+        - ap-southeast-1a
+        - ap-southeast-1b
+        - ap-southeast-1c
+      {% endif %}
+      DBClusterIdentifier: "{{ db_cluster_id }}"
+      DBClusterParameterGroupName:
+        Ref: DbClusterParameterGroup
+      DBSubnetGroupName:
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:DbSubnetGroupName"
+      {% if resource.Properties.EngineMode != 'serverless' %}
+      EnableCloudwatchLogsExports:  # Note: Depends on db engine being used.
+        - postgresql
+      {% endif %}
+      Engine: aurora-postgresql
+      {% if resource.Properties.EngineMode != 'serverlessV2' %}
+      EngineMode: {{ resource.Properties.EngineMode | d({ 'Ref': 'AWS::NoValue' }) }}
+      {% endif %}
+      EngineVersion: {{ resource.Properties.EngineVersion | d({ 'Ref': 'AWS::NoValue' }) }}
+      KmsKeyId:
+        Fn::If:
+          - KmsKeyExists
+          - Ref: KmsKeyArn
+          - Ref: "AWS::NoValue"
+      MasterUsername: {{ resource.Properties.MasterUsername }}
+      MasterUserPassword:
+        Fn::Join: ['', ['{{ '{{' }}resolve:secretsmanager:', !Ref DbSecret, ':SecretString:password{{ '}}' }}' ]]
+      Port: {{ resource.Properties.Port | d(5432) }}
+      PreferredBackupWindow: {{ resource.Properties.PreferredBackupWindow | d({ 'Ref': 'AWS::NoValue' }) }}
+      PreferredMaintenanceWindow: {{ resource.Properties.PreferredMaintenanceWindow | d({ 'Ref': 'AWS::NoValue' }) }}
+      {% if 'ScalingConfiguration' in resource.Properties %}
+      ScalingConfiguration:
+        {{ resource.Properties.ScalingConfiguration | to_yaml | indent(8) }}
+      {% endif %}
+
+      {% if 'ServerlessV2ScalingConfiguration' in resource.Properties %}
+      ServerlessV2ScalingConfiguration:
+        {{ resource.Properties.ServerlessV2ScalingConfiguration | to_yaml | indent(8) }}
+      {% endif %}
+      {% if 'SnapshotIdentifier' in resource.Properties %}
+      {{ resource.Properties.SnapshotIdentifier | snapshot_id(component_type) | to_yaml | indent(6) }}
+      {% endif %}
+      StorageEncrypted: true
+      VpcSecurityGroupIds:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:SecurityGroupId"
+        {% for rule in resource | ip_rules(source_types=['sg-attachment']) %}
+        - Fn::ImportValue: "{{ rule.Value }}"
+        {% endfor %}
+
+  DbSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: "{{ names.base_build_name_hyphenated }}-dbsecret"
+      Description: "RDS master user name, password"
+      KmsKeyId: !Ref KmsKeyArn
+      GenerateSecretString:
+        SecretStringTemplate: "{\"username\": \"{{ resource.Properties.MasterUsername }}\"}"
+        ExcludeUppercase: false
+        IncludeSpace: false
+        PasswordLength: 32
+        ExcludePunctuation: true
+        ExcludeLowercase: false
+        ExcludeNumbers: false
+        GenerateStringKey: "password"
+
+  # Attaches the secret to the rds database resource.
+  DbSecretAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId:
+        Ref: DbSecret
+      TargetId:
+        Ref: DbCluster
+      TargetType: AWS::RDS::DBCluster
+
+  {% set resource = app[component_name].Configuration.DbClusterParameterGroup %}
+  DbClusterParameterGroup:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Properties:
+      Description: {{ resource.Properties.Description }}
+      Family: {{ resource.Properties.Family }}
+      Parameters:
+        {% if 'Parameters' in resource.Properties %}
+        {{ resource.Properties.Parameters | to_yaml | indent(8) }}
+        {% endif %}
+        rds.force_ssl: 1  # For postgresql.
+
+  {% include "AWS/RDS/Aurora/_shared/files/deploy-dbinstance.yaml" %}
+
+  {% if 'DbInstanceParameterGroup' in app[component_name].Configuration %}
+  {% set resource = app[component_name].Configuration.DbInstanceParameterGroup %}
+  DbInstanceParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: {{ resource.Properties.Description }}
+      Family: {{ resource.Properties.Family }}
+      {% if 'Parameters' in resource.Properties %}
+      Parameters:
+        {{ resource.Properties.Parameters | to_yaml | indent(8) }}
+      {% endif %}
+  {% endif %}
+
+  # ----------
+  # Log Groups
+  # See https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/AuroraPostgreSQL.CloudWatch.html
+  # ----------
+
+  PostgreSQLLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: "/aws/rds/cluster/{{ db_cluster_id }}/postgresql"
+      RetentionInDays: {{ app[component_name].Configuration | extract('GeneralLogGroup.Properties.RetentionInDays', 14) }}
+
+Outputs:
+
+  {% set resource = app[component_name].Configuration.DbCluster %}
+
+  DbClusterId:
+    Value:
+      Ref: DbCluster
+    Export:
+      Name: !Sub "${AWS::StackName}:DbClusterId"
+
+  DbClusterEndpoint:
+    Value: !GetAtt DbCluster.Endpoint.Address
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DbClusterEndpoint"
+
+  DbClusterPort:
+    Value: !GetAtt DbCluster.Endpoint.Port
+    Export:
+      Name: !Sub "${AWS::StackName}:DbClusterPort"
+
+  {% if resource.Properties.EngineMode != 'serverless' %}
+  DbReaderEndpoint:
+    Value: !GetAtt DbCluster.ReadEndpoint.Address
+    Export:
+      Name: !Sub "${AWS::StackName}:DbReaderEndpoint"
+  {% endif %}
+
+  DbSecretId:
+    Value: !Ref DbSecret
+    Export:
+      Name: !Sub "${AWS::StackName}:DbSecretId"

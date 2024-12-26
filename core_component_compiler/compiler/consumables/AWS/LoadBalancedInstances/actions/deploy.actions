@@ -1,0 +1,2 @@
+{% include "AWS/_shared/actions/deploy-persist.actions" %}
+{% include "AWS/_shared/actions/addons/deploy-log-groups.actions" %}

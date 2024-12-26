@@ -1,0 +1,44 @@
+Resource::AWS::CloudWatch::Alarm:
+  Properties:
+    AlarmDescription:
+      _Type: aws-string
+      _Required: false
+    AlarmActions:
+      _Type: list
+      _ListItemType: aws-string
+    AlarmName:
+      _Type: string
+      _Required: false
+    ComparisonOperator:
+      _Type: string
+      _StringEnum: [ GreaterThanOrEqualToThreshold, GreaterThanThreshold, LessThanThreshold, LessThanOrEqualToThreshold ]
+    Dimensions:
+      _Type: list
+      _Required: false
+      _ListLength: 0-10
+      _ListItemSpec:
+        Name:
+          _Type: string
+        Value:
+          _Type: aws-string
+    EvaluationPeriods:
+      _Type: int
+      _Required: false
+    MetricName:
+      _Type: string
+      _Required: false
+    Namespace:
+      _Type: string
+      _Required: false
+    Period:
+      _Type: int
+      _Required: false
+    Statistic:
+      _Type: string
+      _Required: false
+      _StringEnum: [ SampleCount, Average, Sum, Minimum, Maximum ]
+    Threshold:
+      _Type: float
+    Unit:
+      _Type: string
+      _Required: false

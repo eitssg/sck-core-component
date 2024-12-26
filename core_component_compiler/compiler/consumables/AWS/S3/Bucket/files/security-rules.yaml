@@ -1,0 +1,94 @@
+{% set Build = context.Build %}
+{% if 'PersistUpdateVersion' in app[component_name] %}
+{% set Build = app[component_name].PersistUpdateVersion %}
+{% endif %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::S3::Bucket - {{ component_name }} - security rules
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  ResourcesStackName:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+  Stage:
+    Type: String
+    Default: "final"
+
+Conditions:
+  FinalStage: { "Fn::Equals": [ Ref: Stage, "final" ] }
+
+Resources:
+  DefaultImport:
+    Metadata:
+      DefaultImport:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:DefaultExport"
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+  {% for rule in app[component_name].Configuration.Bucket | iam_rules %}
+  IamPolicy{{ loop.index }}:
+    Type: AWS::IAM::Policy
+    Condition: FinalStage
+    Properties:
+      PolicyName: {{ component_name }}-{{ Build }}-x{{ loop.index }}
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetBucketLocation
+              {% if 'list' in rule.Allow %}
+              # List permissions
+              - s3:ListBucket
+              - s3:ListBucketVersions
+              {% endif %}
+              {% if 'write' in rule.Allow %}
+              # Write permissions
+              - s3:ListBucketMultipartUploads
+              {% endif %}
+            Resource:
+              - Fn::Sub:
+                - "arn:aws:s3:::${BucketName}"
+                - BucketName:
+                    Fn::ImportValue:
+                      Fn::Sub: "${ResourcesStackName}:BucketName"
+          {% if 'read' in rule.Allow or 'write' in rule.Allow or 'delete' in rule.Allow %}
+          - Effect: Allow
+            Action:
+              {% if 'read' in rule.Allow %}
+              # Read permissions
+              - s3:GetObject*
+              {% endif %}
+              {% if 'write' in rule.Allow %}
+              # Write permissions
+              - s3:AbortMultipartUpload
+              - s3:ListMultipartUploadParts
+              - s3:PutObject
+              - s3:PutObjectAcl
+              - s3:PutObjectTagging
+              - s3:RestoreObject
+              {% endif %}
+              {% if 'delete' in rule.Allow %}
+              # Delete permissions
+              - s3:DeleteObject
+              - s3:DeleteObjectVersion
+              {% endif %}
+            {% endif %}
+            Resource:
+              - Fn::Sub:
+                - "arn:aws:s3:::${BucketName}/*"
+                - BucketName:
+                    Fn::ImportValue:
+                      Fn::Sub: "${ResourcesStackName}:BucketName"
+      Roles:
+        - Fn::ImportValue: "{{ rule.Value }}"   # {{ rule.Description }}
+
+  {% endfor %}

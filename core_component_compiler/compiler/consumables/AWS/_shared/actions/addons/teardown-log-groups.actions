@@ -1,0 +1,32 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set status_details = { "Scope": "component", "Consumable": app[component_name].Type, "Environment": context.Environment } %}
+
+# (log groups) Delete log groups stack
+- Type: AWS::DeleteStack
+  Label: "{{ context.ComponentPrn }}:action/teardown/main/log-groups"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/teardown/start"
+    - "{{ context.ComponentPrn }}:action/teardown/main/bake-stack"
+    - "{{ context.ComponentPrn }}:action/teardown/main/build-stack"
+    - "{{ context.ComponentPrn }}:action/teardown/main/resources"
+  Condition: "'{{ context.ComponentPrn }}:var/teardown/main/resources/StackStatus' | lookup('') == 'DELETE_COMPLETE'"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    StackName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/gather-facts/pointers/BaseStackName' | lookup('{{ names.base_stack_name }}') {{ '}}' }}-{{ names.log_groups_stack_suffix }}"
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleting log groups
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: Deleted log groups
+        OnFailed:
+          Status: TEARDOWN_FAILED
+          Message: Failed to delete log groups
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

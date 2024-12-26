@@ -1,0 +1,56 @@
+AWS::IAM::IamAssumableRoleWithOidc:
+  _Type: Component
+
+  Configuration:
+    AppRole:
+      Properties:
+        role_postfix:
+          _Type: string
+          _Required: false
+        ClusterOIDCURL:
+          _Type: string
+          _Required: true
+        serviceaccount_url:
+          _Type: string
+          _Required: true
+    DevelopmentEnvRolePolicies:
+      _Type: freeform
+      _Required: false
+    AppRolePolicies:
+      _Required: false
+      Properties:
+        policy_postfix:
+          _Type: string
+          _Required: false
+        sqs_arn_list:
+          _Type: list
+          _Required: False
+          _ListItemType: string
+        secretmanager_arn_list:
+          _Type: list
+          _Required: false
+          _ListItemType: string
+        paramstore_arn_list:
+          _Type: list
+          _Required: false
+          _ListItemType: string
+        kms_arn_list:
+          _Type: list
+          _Required: false
+          _ListItemType: string
+        s3_arn_list:
+          _Type: list
+          _Required: false
+          _ListItemType: string
+        dynamodb_arn_list:
+          _Type: list
+          _Required: false
+          _ListItemType: string
+        ses_arn_list:
+          _Type: list
+          _Required: false
+          _ListItemType: string
+        sns_arn_list:
+          _Type: list
+          _Required: False
+          _ListItemType: string

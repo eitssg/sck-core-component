@@ -1,0 +1,150 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::Serverless - {{ component_name }} - resources
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Conditions:
+  KmsKeyExists: { "Fn::Not": [ "Fn::Equals": [ Ref: KmsKeyArn, "" ] ] }
+
+Resources:
+  # Lambda function
+  {% set resource = app[component_name].Configuration.Function %}
+  {% set function_name = [ context.Portfolio, context.App, context.BranchShortName, component_name ] | join("-") %}
+  {% set vpc_attachment = resource | extract('Properties.VpcConfig."Fn::Pipeline::LambdaVpcConfig".VpcAccess', true) %}
+  Function:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LogGroup
+    Properties:
+      Code:
+        {% if 'S3Key' in resource.Properties.Code %}
+        S3Bucket: "{{ context.FilesBucketName }}"
+        S3Key: {{ context.BuildFilesPrefix }}/{{ resource.Properties.Code.S3Key['Fn::Pipeline::FileS3Key']['Path'] }}
+        {% else %}
+        ZipFile: |
+          {{ resource.Properties.Code.ZipFile | indent(10) }}
+        {% endif %}
+      Environment:
+        Variables:
+          PIPELINE_AWS_REGION:
+            Ref: AWS::Region
+          PIPELINE_AWS_ACCOUNT_ID:
+            Ref: AWS::AccountId
+          PIPELINE_KMS_KEY_ARN:
+            Ref: KmsKeyArn
+          PIPELINE_PORTFOLIO: "{{ context.Portfolio }}"
+          PIPELINE_APP: "{{ context.App }}"
+          PIPELINE_BRANCH: "{{ context.Branch }}"
+          PIPELINE_BRANCH_SHORT_NAME: "{{ context.BranchShortName }}"
+          PIPELINE_BUILD: "{{ context.Build }}"
+          PIPELINE_COMPONENT: "{{ component_name }}"
+          {% if vpc_attachment %}
+          PIPELINE_PROXY_URL: "{{ context.ProxyUrl }}"
+          PIPELINE_NO_PROXY: "{{ context.NoProxy }}"
+          {% endif %}
+          {% if 'Environment' in resource.Properties and 'Variables' in resource.Properties.Environment %}
+          {{ resource.Properties.Environment.Variables | to_yaml | indent(10) }}
+          {% endif %}
+      {% if 'FunctionName' in resource.Properties %}
+      FunctionName: "{{ context.Portfolio }}-{{ resource.Properties.FunctionName }}"
+      {% else %}
+      FunctionName: "{{ context.Portfolio }}-{{ context.App }}-{{ context.BranchShortName }}-{{ component_name }}"
+      {% endif %}
+      {% if 'ReservedConcurrentExecutions' in resource.Properties %}
+      ReservedConcurrentExecutions: {{ resource.Properties.ReservedConcurrentExecutions }}
+      {% endif %}
+      Handler: "{{ resource.Properties.Handler | d('index.handler') }}"
+      KmsKeyArn:
+        Fn::If:
+          - KmsKeyExists
+          - Ref: KmsKeyArn
+          - Ref: "AWS::NoValue"
+      MemorySize: {{ resource.Properties.MemorySize }}
+      Role:
+        Fn::ImportValue:
+          Fn::Sub: "${SecurityStackName}:RoleArn"
+      Runtime: "{{ resource.Properties.Runtime }}"
+      Timeout: {{ resource.Properties.Timeout }}
+      {% if vpc_attachment %}
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue:
+              Fn::Sub: "${SecurityStackName}:SecurityGroupId"
+        SubnetIds:
+          - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
+          - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}2Id"
+          {% if context.AzCount >= 3 %}
+          - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}3Id"
+          {% endif %}
+      {% endif %}
+      {% if resource.Properties.Layers is defined and resource.Properties.Layers == True %}
+      Layers:
+        {% if resource.Properties.S3Key_Layer is defined %}
+        - !Ref Layer
+        {% endif %}
+        {% if resource.Properties.ARN_Layers is defined %}
+        {{ resource.Properties.ARN_Layers | to_yaml | indent(8) }}
+        {% endif %}
+      {% endif %}
+
+  # lambda layer
+  {% if resource.Properties.Layers is defined and resource.Properties.Layers == True and resource.Properties.S3Key_Layer is defined %}
+  Layer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: "{{ context.Portfolio }}-{{ context.App }}-{{ context.BranchShortName }}-{{ component_name }}"
+      Content:
+        {% if 'S3Key_Layer' in resource.Properties %}
+        S3Bucket: "{{ context.FilesBucketName }}"
+        S3Key: {{ context.BuildFilesPrefix }}/{{ resource.Properties.S3Key_Layer['Fn::Pipeline::FileS3Key']['Path'] }}
+        {% else %}
+        ZipFile: |
+          {{ resource.Properties.ZipFile_Layer | indent(10) }}
+        {% endif %}
+      {% if 'CompatibleRuntimes' in resource.Properties %}
+      CompatibleRuntimes:
+        {{ resource.Properties.CompatibleRuntimes | to_yaml | indent(8) }}
+      {% else %}
+      CompatibleRuntimes:
+        - nodejs14.x
+      {% endif %}
+  {% endif %}
+
+  # Log group
+  {% set log_resource = app[component_name].Configuration.LogGroup | d({}) %}
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: "/aws/lambda/{{ function_name }}"
+      RetentionInDays: {{ log_resource | extract('Properties.RetentionInDays', 30) }}
+
+Outputs:
+  FunctionName:
+    Value:
+      Ref: Function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:FunctionName"
+
+  FunctionArn:
+    Value:
+      Fn::GetAtt: [ Function, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:FunctionArn"
+
+  {% if resource.Properties.Layers is defined and resource.Properties.Layers == True and resource.Properties.S3Key_Layer is defined %}
+  LayerName:
+    Value:
+      Ref: Layer
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LayerName"
+  {% endif %}

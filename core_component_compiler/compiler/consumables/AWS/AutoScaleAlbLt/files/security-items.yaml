@@ -1,0 +1,207 @@
+# CLB/ALB suppport.
+{% set config = app[component_name].Configuration %}
+{% set load_balancer = config.get('LoadBalancer', config.get('ApplicationLoadBalancer')) %}
+{% set proposed_bucket_name = [ context.App, context.BranchShortName, component_name ] | join("-") %}
+{% set bucket_name = config | extract('ELBV2AccessLog.S3BucketName', proposed_bucket_name) %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::AutoScaleAlbLt - {{ component_name }} - security items
+
+Resources:
+
+  LbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Load balancer security group
+      VpcId:
+        {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:VpcId"
+        {% else %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {% endif %}
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Instance security group
+      VpcId:
+        {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:VpcId"
+        {% else %}
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {% endif %}
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - autoscaling.amazonaws.com
+                - ec2.amazonaws.com
+                - secretsmanager.amazonaws.com
+        Version: "2012-10-17"
+      Path: "/"
+      {% if 'DefaultManagedPolicyArns' in context %}
+      ManagedPolicyArns:
+        # Default Managed policy ARNs
+        {{ context.DefaultManagedPolicyArns | to_yaml | indent(8) }}
+      {% endif %}
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - Ref: Role
+  {% if 'LogBucket' in load_balancer.Properties and (load_balancer.Properties.LogBucket == 'enabled') %}
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: {{ bucket_name }}
+      LifecycleConfiguration:
+        Rules:
+          - ExpirationInDays: 7
+            Status: 'Enabled'
+            Id: 'Expunge-In-7-Days'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  BucketAccessPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: 'ELB-Access-Policy'
+        Statement:
+          - Sid: AllowPutObject
+            Effect: Allow
+            Principal:
+              AWS: "arn:aws:iam::114774131450:root" # todo: support ap-southeast-1 only for now
+            Action: s3:PutObject
+            Resource:
+              - Fn::Sub: "${Bucket.Arn}/AWSLogs/{{ context.AwsAccountId }}/*"
+          - Sid: GetBucketAcl
+            Effect: Allow
+            Principal:
+              Service: 'logdelivery.elb.amazonaws.com'
+            Action: s3:GetBucketAcl
+            Resource:
+              Fn::Sub: "${Bucket.Arn}"
+          - Sid: AllowSSLRequestsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - Fn::Sub: "${Bucket.Arn}"
+              - Fn::Sub: "${Bucket.Arn}/*"
+            Condition:
+              Bool:
+                "aws:SecureTransport": "false"
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - Fn::Sub: "${Bucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+          - Sid: DenyIncorrectEncryptionHeader
+            Effect: Deny
+            Principal: "*"
+            Action: s3:PutObject
+            Resource:
+              Fn::Sub: "${Bucket.Arn}/*"
+            Condition:
+              # DENY if server side encryption is defined and not AES256
+              'Null':
+                s3:x-amz-server-side-encryption: false
+              StringNotEquals:
+                s3:x-amz-server-side-encryption: AES256
+  {% endif %}
+Outputs:
+  DefaultExport:
+    Value:
+      Ref: AWS::StackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DefaultExport"
+
+  InstanceProfileArn:
+    Value:
+      Fn::GetAtt: [ InstanceProfile, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:InstanceProfileArn"
+
+  InstanceProfileName:
+    Value:
+      Ref: InstanceProfile
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:InstanceProfileName"
+
+  RoleArn:
+    Value:
+      Fn::GetAtt: [ Role, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:RoleArn"
+
+  RoleName:
+    Value:
+      Ref: Role
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:RoleName"
+
+  SecurityGroupId:
+    Value:
+      Ref: SecurityGroup
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:SecurityGroupId"
+
+  LbSecurityGroupId:
+    Value:
+      Ref: LbSecurityGroup
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LbSecurityGroupId"
+
+  {% if 'LogBucket' in load_balancer.Properties and (load_balancer.Properties.LogBucket == 'enabled') %}
+  AccessLogBucketName:
+    Value:
+      Ref: Bucket
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:AccessLogBucketName"
+
+  AccessLogBucketArn:
+    Value:
+      Fn::GetAtt: [ Bucket, Arn ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:AccessLogBucketArn"
+
+  AccessLogBucketS3Url:
+    Value:
+      Fn::Sub: "s3://${Bucket}"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:AccessLogBucketS3Url"
+  {% endif %}

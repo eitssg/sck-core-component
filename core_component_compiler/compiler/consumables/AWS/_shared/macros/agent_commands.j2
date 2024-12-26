@@ -1,0 +1,119 @@
+{% macro agent_commands(resource, image_alias, context, mode) %}
+{% if 'win' in image_alias %}
+01-installCloudWatchAgent:
+  command: >
+         powershell.exe -command "if (!(Test-Path 'C:\Program Files\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.exe')) { powershell.exe -command 'cd C:\pipeline\AmazonCloudWatchAgent; .\install.ps1'}"
+  waitAfterCompletion: '0'
+02-configureCloudWatchAgent:
+  command: 'powershell.exe -Command "cp C:\pipeline\etc\common-config.toml C:\ProgramData\Amazon\AmazonCloudWatchAgent\common-config.toml"'
+  waitAfterCompletion: '0'
+03-startCloudWatchAgent:
+  command: 'powershell.exe -command "& $Env:ProgramFiles\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent-ctl.ps1" -a fetch-config -m ec2 -c file:C:\pipeline\etc\cloudwatch_agent.json -s'
+  waitAfterCompletion: '0'
+{% else %}
+01-get-installer:
+  command: curl https://s3.amazonaws.com/aws-cloudwatch/downloads/latest/awslogs-agent-setup.py -O
+02-get-dependencies:
+  command: curl https://s3.amazonaws.com/aws-cloudwatch/downloads/latest/AgentDependencies.tar.gz -O
+03-extract-dependencies:
+  command: tar xvf AgentDependencies.tar.gz -C /tmp/
+04-create-state-dir:
+  command: mkdir -p /var/lib/awslogs
+      {% if 'amazon-linux-2' in image_alias %}
+05-replace-etc-issue:
+  command: cp /etc/issue /etc/issue.bak && echo "Amazon Linux AMI" > /etc/issue
+      {% endif %}
+      {% if 'cis' in image_alias %}
+06-fix-awslogs-cis:
+  command: sed -i '/\        \# Setup awslogs plugin/a \        \import stat\n\        \st = os.stat(AWSCLI_CMD)\n\        \os.chmod(AWSCLI_CMD, st.st_mode | stat.S_IEXEC)' ./awslogs-agent-setup.py
+      {% endif %}
+07-install-awslogs:
+  command: export TMPDIR=/var/tmp && python ./awslogs-agent-setup.py -n -r "{{ context.AwsRegion }}" -c /tmp/awslogs/awslogs.conf --dependency-path /tmp/AgentDependencies --http-proxy "{{ context.ProxyUrl }}" --https-proxy "{{ context.ProxyUrl }}" --no-proxy "{{ context.NoProxy }}"
+      {% if 'amazon-linux-2' in image_alias %}
+08-restore-etc-issue:
+  command: mv /etc/issue.bak /etc/issue
+      {% endif %}
+11-cleanup:
+  command: rm -rf ./awslogs-agent-setup.py ./AgentDependencies.tar.gz /tmp/AgentDependencies /tmp/awslogs
+    {% if  (mode == 'nobake' or mode == 'install') and ('Properties' in resource and 'Dynatrace' in resource.Properties and resource.Properties.Dynatrace == True) %}
+41-dynatrace-install:
+  command: |
+    if [ ! -f /root/install-dynatrace.sh ]
+    then
+      export no_proxy=$no_proxy,s3.ap-southeast-1.amazonaws.com
+      aws s3 cp s3://simple-core-automation-ap-southeast-1/files/shared/dynatrace/{{context.Environment}}/Dynatrace-Agent-Linux-x86-{{  resource.Properties.DynatraceVersion | d('latest') }}.sh /root/install-dynatrace.sh
+      touch /root/install-dynatrace.sh
+      sh /root/install-dynatrace.sh
+    else
+      touch /root/install-dynatrace.sh
+      sh /root/install-dynatrace.sh
+    fi
+    {% endif %}
+{% if  (mode == 'nobake' or mode == 'install') and ( 'amazon-linux-2-CIS-' in image_alias or 'rhel-8-CIS-' in image_alias)  %}
+{% if 'TenableScan' in context and context['TenableScan'] is false %}
+{% else %}
+    {% if 'TenablePortfolio' in context  and 'TenableLinkingKey' in context and 'TenableHostname' in context and context['TenablePortfolio'] is not none and context['TenableLinkingKey'] is not none and context['TenableHostname'] is not none %}
+51-tenable-install:
+  command: rpm -ivh /NessusAgent-*.rpm
+52-tenable-register:
+          {% if 'amazon-linux-2-CIS-' in image_alias %}
+  command: /opt/nessus_agent/sbin/nessuscli agent link --key={{context.TenableLinkingKey}}  --host={{context.TenableHostname}}  --port=443 --groups=amzn2-{{context.TenablePortfolio}}-{{context.Environment}} --name={{ context.Portfolio }}-{{ context.App }}-{{ context.BranchShortName }}-{{ context.Build }}
+          {% elif 'rhel-8-CIS-' in image_alias %}
+  command: /opt/nessus_agent/sbin/nessuscli agent link --key={{context.TenableLinkingKey}}  --host={{context.TenableHostname}}  --port=443 --groups=rhel8-{{context.TenablePortfolio}}-{{context.Environment}} --name={{ context.Portfolio }}-{{ context.App }}-{{ context.BranchShortName }}-{{ context.Build }}
+          {% else %}
+  command: /opt/nessus_agent/sbin/nessuscli agent link --key={{context.TenableLinkingKey}}  --host={{context.TenableHostname}}  --port=443  --name={{ context.Portfolio }}-{{ context.App }}-{{ context.BranchShortName }}-{{ context.Build }}
+          {% endif %}
+53-tenable-enable:
+  command: systemctl enable nessusagent
+54-tenable-start:
+  command: systemctl start nessusagent
+        {% endif %}
+{% endif %}
+{% endif %}
+{% endif %}
+{# custom agents #}
+{% set agentlist = resource | extract('Metadata."Pipeline::Agents"', {}) %}
+{% for agentname, config in agentlist.items() %}
+{% set agent_context = context.get('Agents', {}).get(agentname, {}) %}
+{% if agentname == 'datadog' and agent_context.enabled == True and config.enabled == True %}
+{% if 'win' in image_alias %}
+01-download-datadogAgent:
+  command: 'powershell.exe -Command wget https://s3.amazonaws.com/ddagent-windows-stable/datadog-agent-6-latest.amd64.msi -outfile c:\pipeline\datadog-agent-6-latest.amd64.msi'
+  cwd: 'C:\pipeline'
+  waitAfterCompletion: 0
+02-install-datadogAgent:
+  command: "powershell.exe -Command Start-Process msiexec.exe -Wait -ArgumentList '/I datadog-agent-6-latest.amd64.msi APIKEY={{ agent_context.datadog_api_key }} /quiet'"
+  cwd: 'C:\pipeline'
+  waitAfterCompletion: 0
+03-datadogAgent-proxy:
+  command: 'powershell.exe -Command Add-Content datadog.yaml \"proxy:\"'
+  cwd: 'c:\programdata\datadog'
+  waitAfterCompletion: 0
+04-datadogAgent2-proxy:
+  command: 'powershell.exe -Command Add-Content datadog.yaml \"  https: {{ context.ProxyUrl }}\"'
+  cwd: 'c:\programdata\datadog'
+  waitAfterCompletion: 0
+05-start-datadogAgent:
+  command: 'powershell.exe -Command "C:\Program Files\Datadog\Datadog Agent\embedded\agent.exe restart-service"'
+  waitAfterCompletion: 0
+{% else %}
+{% if 'amazon-linux-2' in image_alias %}
+01-install-ansible:
+  command: "amazon-linux-extras install ansible2"
+{% endif %}
+02-combine-common:
+  command: "rsync -av /opt/pipeline/ansible/common/roles/ /opt/pipeline/ansible/roles/"
+03-remove-common:
+  command: "rm -rf /opt/pipeline/ansible/common"
+04-replace-key:
+  command: "sed -i 's/<datadog_api_key>/{{ agent_context.datadog_api_key }}/g' /tmp/ansible/datadog.yaml"
+05-replace-proxy:
+  command: "sed -i 's~<datadog_proxy>~{{ context.ProxyUrl }}~g' /tmp/ansible/datadog.yaml"
+06-copy-ansible:
+  command: "mv /tmp/ansible/datadog.yaml /opt/pipeline/ansible/datadog.yaml"
+07-run-ansible:
+  command: "ansible-playbook /opt/pipeline/ansible/datadog.yaml -c local >> /var/log/cloud-init-output.log 2>&1"
+{% endif %}
+{% endif %}
+{% endfor %}
+{% endmacro %}

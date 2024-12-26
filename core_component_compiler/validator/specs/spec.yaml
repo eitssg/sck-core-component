@@ -1,0 +1,109 @@
+Spec:
+  _Type:
+    __Type: string
+    __Required: false
+  _Required:
+    __Type: eval-boolean
+    __Required: false
+  _Documentation:
+    __Type: freeform
+    __Required: false
+  _Configurable:
+    __Type: eval-boolean
+    __Required: false
+  _KeyCardinality:
+    __Type: string
+    __Required: false
+  _KeyRegex:
+    __Type: string
+    __Required: false
+  _KeyEnum:
+    __Type: list
+    __Required: false
+    __ListItemType: string
+
+  # List
+  _ListItemType:
+    __Type: string
+    __Required: false
+    __Configurable: { 'Spec::Property': [ _Type, 'list' ] }
+  _ListAllowSingular:
+    __Type: boolean
+    __Required: false
+    __Configurable: { 'Spec::Property': [ _Type, 'list' ] }
+  _ListItemSpec:
+    __Type: Spec
+    __Required: false
+    __Configurable: { 'Spec::Property': [ _Type, 'list' ] }
+  _ListLength:
+    __Type: string
+    __Required: false
+    __StringTypecast: true
+    __Configurable: { 'Spec::Property': [ _Type, 'list' ] }
+
+  # String
+  _StringEnum:
+    __Type: list
+    __Required: false
+    __ListItemType: string
+    __Configurable: { 'Spec::Property': [ _Type, 'string' ] }
+  _StringRegex:
+    __Type: string
+    __Required: false
+    __Configurable: { 'Spec::Property': [ _Type, 'string' ] }
+  _StringLength:
+    __Type: string
+    __Required: false
+    __Configurable: { 'Spec::Property': [ _Type, 'string' ] }
+
+  # Int
+  _IntEnum:
+    __Type: list
+    __Required: false
+    __ListItemType: int
+    __Configurable: { 'Spec::Property': [ _Type, 'int' ] }
+  _IntMinValue:
+    __Type: int
+    __Required: false
+    __Configurable: { 'Spec::Property': [ _Type, 'int' ] }
+  _IntMaxValue:
+    __Type: int
+    __Required: false
+    __Configurable: { 'Spec::Property': [ _Type, 'int' ] }
+  _IntMultipleOf:
+    __Type: int
+    __Required: false
+    __Configurable: { 'Spec::Property': [ _Type, 'int' ] }
+  _IntTypecast:
+    __Type: boolean
+    __Required: false
+    __Configurable: { 'Spec::Property': [ _Type, 'int' ] }
+
+  # Float
+  _FloatEnum:
+    __Type: list
+    __Required: false
+    __ListItemType: float
+    __Configurable: { 'Spec::Property': [ _Type, 'float' ] }
+  _FloatMinValue:
+    __Type: float
+    __Required: false
+    __Configurable: { 'Spec::Property': [ _Type, 'float' ] }
+  _FloatMaxValue:
+    __Type: float
+    __Required: false
+    __Configurable: { 'Spec::Property': [ _Type, 'float' ] }
+  _FloatTypecast:
+    __Type: boolean
+    __Required: false
+    __Configurable: { 'Spec::Property': [ _Type, 'float' ] }
+
+  # Dict keys
+  DictKeys:
+    __KeyRegex: '[^_].*'
+    __KeyCardinality: 0+
+    __Type: Spec
+    __Configurable:
+      Spec::Or:
+        - Spec::Property: [_Type, 'dict']
+        - Spec::Property: [_Type, null]

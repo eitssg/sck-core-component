@@ -1,0 +1,65 @@
+AWS::SQS::DLQueue:
+  _Type: Component
+
+  Configuration:
+    Queue:
+      Pipeline::Security:
+        _Type: Pipeline::IamSecurity
+        _Required: false
+        _ListItemSpec:
+          Allow:
+            _ListItemSpec:
+              _StringEnum: [ read, write, admin ]
+      Properties:
+        DelaySeconds:
+          _Type: int
+          _Required: false
+          _IntMinValue: 0
+          _IntMaxValue: 900
+        MaximumMessageSize:
+          _Type: int
+          _Required: false
+          _IntMinValue: 1024
+          _IntMaxValue: 262144
+        MessageRetentionPeriod:
+          _Type: int
+          _Required: false
+          _IntMinValue: 60
+          _IntMaxValue: 1209600
+        ReceiveMessageWaitTimeSeconds:
+          _Type: int
+          _Required: false
+          _IntMinValue: 1
+          _IntMaxValue: 20
+        VisibilityTimeout:
+          _Type: int
+          _Required: false
+          _IntMinValue: 0
+          _IntMaxValue: 43200
+        deadLetterTargetArn:
+          _Type: string
+          _Required: false
+          _StringRegex: 'arn:aws:sqs:.*'
+        maxReceiveCount:
+          _Type: int
+          _Required: false
+        Queue_postfix:
+          _Type: string
+          _Required: false
+        Queue_prefix:
+          _Type: string
+          _Required: false
+        FifoQueue:
+          _Type: boolean
+          _Required: false
+        ContentBasedDeduplication:
+          _Type: boolean
+          _Required: false
+        QueuePolicy:
+          _Type: Resource::AWS::SQS::QueuePolicy
+          _Required: false
+
+Resource::AWS::SQS::QueuePolicy:
+  AllowSNS:
+    _Type: boolean
+    _Required: false

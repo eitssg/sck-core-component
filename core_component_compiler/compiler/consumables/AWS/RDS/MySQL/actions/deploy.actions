@@ -1,0 +1,37 @@
+{% include "AWS/_shared/actions/deploy-persist.actions" %}
+{% set status_details = { "Scope": "component", "Consumable": app[component_name].Type, "Environment": context.Environment } %}
+
+# Enable CloudWatch logs exports
+- Type: AWS::RDS::ModifyDbInstance
+  Label: "{{ context.ComponentPrn }}:action/deploy/main/enable-cloudwatch-logs"
+  DependsOn:
+    - "{{ context.ComponentPrn }}:action/deploy/main/resources"
+  Condition: "('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
+  Params:
+    Account: "{{ context.AwsAccountId }}"
+    Region: "{{ context.AwsRegion }}"
+    ApiParams:
+      ApplyImmediately: true
+      DBInstanceIdentifier: "{{ '{{' }} '{{ context.ComponentPrn }}:var/deploy/main/resources/DbInstanceId' | lookup {{ '}}' }}"
+      CloudwatchLogsExportConfiguration:
+        EnableLogTypes:
+          - audit
+          - error
+          - general
+          - slowquery
+  LifecycleHooks:
+    - Type: status
+      States: [ Running, Complete, Failed ]
+      Parameters:
+        OnRunning:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Enabling CloudWatch Logs export
+        OnComplete:
+          Status: DEPLOY_IN_PROGRESS
+          Message: Enabled CloudWatch Logs export for ['audit', 'error', 'general', 'slowquery']
+        OnFailed:
+          Status: DEPLOY_FAILED
+          Message: Failed to enable CloudWatch Logs export
+        Identity: "{{ context.ComponentPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

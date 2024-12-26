@@ -1,0 +1,47 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::SNS::Topic - {{ component_name }} - resources
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+  SecurityStackName:
+    Type: String
+Conditions:
+  KmsKeyExists: { "Fn::Not": [ "Fn::Equals": [ Ref: KmsKeyArn, "" ] ] }
+Resources:
+  {% set resource = app[component_name].Configuration.Topic %}
+  Topic:
+    Type: AWS::SNS::Topic
+    Properties:
+      KmsMasterKeyId:
+        Fn::If:
+          - KmsKeyExists
+          - Ref: KmsKeyArn
+          - Ref: "AWS::NoValue"
+      {% if 'KmsDataKeyReusePeriodSeconds' in resource.Properties %}
+      KmsDataKeyReusePeriodSeconds:
+        Fn::If:
+          - KmsKeyExists
+          - {{ resource.Properties.KmsDataKeyReusePeriodSeconds }}
+          - Ref: "AWS::NoValue"
+      {% endif %}
+      TopicName: "{{ context.Portfolio }}-{{ context.App }}-{{ context.BranchShortName }}-{{ context.Build }}-{{ component_name }}" 
+      {% if 'DisplayName' in resource.Properties %}
+      DisplayName: {{ resource.Properties.DisplayName }}
+      {% endif %} 
+      {% if 'Subscription' in resource.Properties %}
+      Subscription:
+        {{ resource.Properties.Subscription | to_yaml | indent(8) }}
+      {% endif %}
+Outputs:
+  TopicArn:
+    Value: !Ref Topic 
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:TopicArn"
+  TopicName:
+    Value:
+      Fn::GetAtt: [ Topic, TopicName ]
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:TopicName"

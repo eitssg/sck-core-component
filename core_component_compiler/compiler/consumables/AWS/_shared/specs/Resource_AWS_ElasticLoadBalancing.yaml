@@ -1,0 +1,13 @@
+Resource::AWS::ElasticLoadBalancing::LoadBalancer::AccessLoggingPolicy:
+  EmitInterval:
+    _Type: int
+    _Required: false
+  Enabled:
+    _Type: boolean
+    _Required: true
+  S3BucketName:
+    _Type: string
+    _Required: true
+  S3BucketPrefix:
+    _Type: string
+    _Required: false

@@ -1,0 +1,35 @@
+Pipeline::IamSecurity:
+  _Type: list
+  _ListLength: 0-30
+  _ListItemType: Pipeline::IamSecurity::Item
+
+Pipeline::IamSecurity::Item:
+  Source:
+    _Type: list
+    _Required: true
+    _ListItemType: string
+    _ListAllowSingular: true
+  Allow:
+    _Type: list
+    _Required: true
+    _ListItemType: string
+    _ListAllowSingular: true
+
+Pipeline::IpSecurity:
+  _Type: list
+  _ListLength: 0-30
+  _ListItemType: Pipeline::IpSecurity::Item
+
+Pipeline::IpSecurity::Item:
+  Source:
+    _Type: list
+    _Required: true
+    _ListItemType: string
+    _ListAllowSingular: true
+  Allow:
+    _Type: list
+    _Required: true
+    _ListAllowSingular: true
+    _ListItemSpec:
+      _Type: string
+      _StringRegex: '((?:TCP)|(?:UDP)|(?:ALL)|(?:ICMP)):((?:[0-9]+)|(?:\*))(?:-((?:[0-9]+)|(?:\*)))?'

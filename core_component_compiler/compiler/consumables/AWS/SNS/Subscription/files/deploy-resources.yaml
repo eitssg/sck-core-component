@@ -1,0 +1,41 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::SNS::Subscription - {{ component_name }} - resources
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+  SecurityStackName:
+    Type: String
+Conditions:
+  KmsKeyExists: { "Fn::Not": [ "Fn::Equals": [ Ref: KmsKeyArn, "" ] ] }
+Resources:
+  {% set resource = app[component_name].Configuration.Subscription %}
+  Subscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: {{ resource.Properties.TopicArn }}
+      Protocol: {{ resource.Properties.Protocol }}
+      {% if 'Endpoint' in resource.Properties %}
+      Endpoint: {{ resource.Properties.Endpoint }}
+      {% endif %}
+      {% if 'RawMessageDelivery' in resource.Properties %}
+      RawMessageDelivery: {{ resource.Properties.RawMessageDelivery }}
+      {% endif %}
+      {% if 'FilterPolicyScope' in resource.Properties %}
+      FilterPolicyScope: {{ resource.Properties.FilterPolicyScope }}
+      {% endif %}
+      {% if 'SubscriptionRoleArn' in resource.Properties %}
+      SubscriptionRoleArn: {{ resource.Properties.SubscriptionRoleArn }}
+      {% endif %}
+      {% if 'FilterPolicy' in resource.Properties %}
+      FilterPolicy: {{ resource.Properties.FilterPolicy }}
+      {% endif %}
+      {% if 'DeliveryPolicy' in resource.Properties %}
+      Protocol: {{ resource.Properties.DeliveryPolicy }}
+      {% endif %}
+Outputs:
+  SubscriptionArn:
+    Value: !Ref Subscription
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:SubscriptionArn"

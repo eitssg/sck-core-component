@@ -1,0 +1,21 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::AutoScaleSpot - {{ component_name }} - log groups
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    {% if app[component_name].Configuration | extract('LogGroup.DeletionPolicy', None) %}
+    DeletionPolicy: {{ app[component_name].Configuration.LogGroup.DeletionPolicy  }}
+    {% endif %}
+    Properties:
+      LogGroupName: {{ names.log_group_name }}
+      RetentionInDays: {{ app[component_name].Configuration | extract('LogGroup.Properties.RetentionInDays', 14) }}
+
+Outputs:
+  DefaultExport:
+    Value:
+      Ref: AWS::StackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DefaultExport"

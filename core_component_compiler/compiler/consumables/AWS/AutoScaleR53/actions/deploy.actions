@@ -1,0 +1,3 @@
+{% include "AWS/_shared/actions/deploy-persistv2.actions" %}
+{% include "AWS/_shared/actions/addons/deploy-log-groups.actions" %}
+{% include "AWS/_shared/actions/addons/deploy-bake-imagev2.actions" %}

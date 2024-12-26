@@ -1,0 +1,85 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::EFS - {{ component_name }} - pointers
+
+Parameters:
+
+  BaseStackName:
+    Type: String
+
+  ResourcesStackName:
+    Type: String
+
+Resources:
+
+  DefaultImport:
+    Metadata:
+      DefaultImport:
+        Fn::ImportValue:
+          Fn::Sub: "${ResourcesStackName}:DefaultExport"
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+  # TODO Adapt for IpAddress when it's available.
+  # {% for i in range(1, context.AzCount+1) %}
+  # MountTarget{{ i }}IdDnsRecord:
+  #   Type: AWS::Route53::RecordSet
+  #   Properties:
+  #     HostedZoneId:
+  #       Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:HostedZoneId
+  #     Name:
+  #       Fn::Sub:
+  #         - "${MountTargetId}.{{ names.deployment_dns_prefix }}.${RegionalHostedZoneName}"
+  #         - RegionalHostedZoneName:
+  #             Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:RegionalHostedZoneName"
+  #           MountTargetId:
+  #             Fn::ImportValue: !Sub "${ResourcesStackName}:MountTarget{{ i }}Id"
+  #     ResourceRecords:
+  #       - Fn::ImportValue:
+  #           Fn::Sub: "${ResourcesStackName}:MountTarget{{ i }}Id"
+  #     Type: CNAME
+  #     TTL: "60"
+
+  # {% endfor %}
+
+Outputs:
+
+  FileSystemId:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:FileSystemId"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:FileSystemId"
+
+  # {% for i in range(1, context.AzCount+1) %}
+  # MountTarget{{ i }}IdDeploymentDns:
+  #   Value:
+  #     Ref: MountTarget{{ i }}IdDnsRecord
+  #   Export:
+  #     Name:
+  #       Fn::Sub: "${AWS::StackName}:MountTarget{{ i }}IdDeploymentDns"
+
+  # {% endfor %}
+
+  Build:
+    Value: "{{ context.Build }}"
+    Export:
+      Name: !Sub "${AWS::StackName}:Build"
+
+  BaseStackName:
+    Value:
+      Ref: BaseStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BaseStackName"
+
+  PointersStackName:
+    Value: !Ref "AWS::StackName"
+    Export:
+      Name: !Sub "${AWS::StackName}:PointersStackName"
+
+  ResourcesStackName:
+    Value: !Ref ResourcesStackName
+    Export:
+      Name: !Sub "${AWS::StackName}:ResourcesStackName"

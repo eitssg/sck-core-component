@@ -1,0 +1,53 @@
+{% macro win_hostname() %}
+# Function to fetch instance ID using IMDSv1
+function Fetch-InstanceIdV1{
+    Invoke-RestMethod -Uri "http://169.254.169.254/latest/meta-data/instance-id"
+}
+
+# Function to fetch instance ID using IMDSv2
+function Fetch-InstanceIdV2{
+    $token = Invoke-RestMethod -Uri "http://169.254.169.254/latest/api/token" -Method PUT -Headers @{"X-aws-ec2-metadata-token-ttl-seconds"="21600"} -ErrorAction SilentlyContinue
+    if ($token) {
+        Invoke-RestMethod -Uri "http://169.254.169.254/latest/meta-data/instance-id" -Headers @{"X-aws-ec2-metadata-token"=$token}
+    } else {
+        # Fall back to IMDSv1 if token fetch fails
+        Fetch-InstanceIdV1
+    }
+}
+
+# Function to Update hostname
+function Rename-Hostname{
+    # Set portfolio and environment variables
+    $PORTFOLIO = "{{ context.Portfolio }}"
+    $ENV = "{{ context.Branch }}"
+    # Conditional logic for environment short names
+    if ($ENV -eq "prod") {
+        $SHORT_ENV = "prd"
+    } elseif ($ENV -eq "nonprod") {
+        $SHORT_ENV = "nprd"
+    } else {
+        $SHORT_ENV = "dev"  # Default or for other environments like development
+    }
+    # Get and print the current hostname
+    $hostname = hostname
+    Write-Host "The current hostname is: $hostname"
+
+    # Attempt to fetch instance ID using IMDSv2, fall back to IMDSv1 if necessary
+    $INSTANCE_ID = Fetch-InstanceIdV2
+    $instanceSuffix = ($INSTANCE_ID -split '-')[(-1)]
+
+    # Construct the new hostname
+    $portfolioSuffix = ($PORTFOLIO -split '-')[(-1)]
+    $NEW_HOSTNAME = "$portfolioSuffix$SHORT_ENV$instanceSuffix"
+
+    # Truncate the hostname to a maximum of 15 characters if necessary
+    if ($NEW_HOSTNAME.Length -gt 15) {
+        $NEW_HOSTNAME = $NEW_HOSTNAME.Substring(0, 15)
+    }
+
+    # Set the hostname
+    Rename-Computer -NewName $NEW_HOSTNAME -Force
+    Write-Host "The New hostname is : $NEW_HOSTNAME"
+}
+
+{% endmacro %}

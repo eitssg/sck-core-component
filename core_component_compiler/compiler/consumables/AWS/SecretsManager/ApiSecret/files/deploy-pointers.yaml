@@ -1,0 +1,52 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::SecretsManager::ApiSecret - {{ component_name }} - pointers
+
+Parameters:
+
+  BaseStackName:
+    Type: String
+
+  ResourcesStackName:
+    Type: String
+
+Resources:
+
+  # Default imports to lock downstream stacks
+  DefaultImport:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Metadata:
+      ApiSecretArn:
+        Fn::ImportValue:
+          Fn::Sub: "${ResourcesStackName}:ApiSecretArn"
+
+Outputs:
+
+  Build:
+    Value: "{{ context.Build }}"
+    Export:
+      Name: !Sub "${AWS::StackName}:Build"
+
+  BaseStackName:
+    Value:
+      Ref: BaseStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BaseStackName"
+
+  PointersStackName:
+    Value: !Ref "AWS::StackName"
+    Export:
+      Name: !Sub "${AWS::StackName}:PointersStackName"
+
+  ResourcesStackName:
+    Value: !Ref ResourcesStackName
+    Export:
+      Name: !Sub "${AWS::StackName}:ResourcesStackName"
+
+  ApiSecretArn:
+    Value:
+      Fn::ImportValue: !Sub "${ResourcesStackName}:ApiSecretArn"
+    Export:
+      Name: !Sub "${AWS::StackName}:ApiSecretArn"

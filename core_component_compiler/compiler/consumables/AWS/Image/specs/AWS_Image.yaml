@@ -1,0 +1,28 @@
+AWS::Image:
+  _Type: Component
+
+  Configuration:
+
+    BakeInstance:
+      _KeyCardinality: 1
+      _Required: true
+      Pipeline::Security:
+        _Type: Pipeline::IpSecurity
+        _Required: false
+      CreationPolicy:
+        _Type: Common::CreationPolicy
+        _Required: false
+      Metadata:
+        _Type: Common::Metadata
+        _Required: false
+      Properties:
+        BlockDeviceMappings:
+          _Type: Resource::AWS::EC2::Instance::BlockDeviceMappings
+          _Required: false
+        ImageId:
+          _Type: Fn::Pipeline::ImageId
+        InstanceType:
+          _Type: string
+        KeyName:
+          _Required: false
+          _Type: string

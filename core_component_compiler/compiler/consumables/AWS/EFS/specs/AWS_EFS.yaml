@@ -1,0 +1,17 @@
+AWS::EFS:
+  _Type: Component
+  Configuration:
+    FileSystem:
+      _Type: Resource::AWS::EFS::FileSystem
+      _Required: true
+
+Resource::AWS::EFS::FileSystem:
+  Pipeline::Security:
+    _Type: Pipeline::IamSecurity
+    _Required: false
+  Properties:
+    _Required: false
+    PerformanceMode:
+      _Type: string
+      _Required: false
+      _StringEnum: [generalPurpose, maxIO]

@@ -1,0 +1,109 @@
+AWS::Cluster:
+  _Type: Component
+
+  Configuration:
+    BakeInstance:
+      Pipeline::Security:
+        _Type: Pipeline::IpSecurity
+        _Required: false
+      CreationPolicy:
+        _Type: Common::CreationPolicy
+        _Required: false
+      Metadata:
+        _Type: Common::Metadata
+        _Required: false
+      Properties:
+        BlockDeviceMappings:
+          _Type: Resource::AWS::EC2::Instance::BlockDeviceMappings
+          _Required: false
+        ImageId:
+          _Type: Fn::Pipeline::ImageId
+        InstanceType:
+          _Type: string
+        KeyName:
+          _Required: false
+          _Type: string
+
+    AutoScalingGroup:
+      CreationPolicy:
+        _Type: Common::CreationPolicy
+        _Required: false
+      Pipeline::Security:
+        _Type: Pipeline::IpSecurity
+        _Required: false
+      Properties:
+        Cooldown:
+          _Type: int
+          _Required: false
+          _IntMinValue: 0
+          # TODO: find bounds
+        DesiredCapacity:
+          _Type: int
+          _Required: false
+          # TODO: validate value is >= min and <= max
+        HealthCheckGracePeriod:
+          _Type: int
+          _Required: false
+        MaxSize:
+          _Type: int
+          # TODO: validate value is >= min
+        MinSize:
+          _Type: int
+          _IntMinValue: 0
+          # TODO: validate value is <= max
+        MetricsCollection:
+          _Warning: This property is deprecated and will not be configurable in the future. Configuring this proprety has no effect. See documentation for more information.
+          _Type: list
+          _Required: false
+          _ListItemType: Resource::AWS::AutoScaling::MetricsCollection
+
+    LaunchConfiguration:
+      Metadata:
+        _Type: Common::Metadata
+        _Required: false
+      Properties:
+        BlockDeviceMappings:
+          _Type: Resource::AWS::EC2::Instance::BlockDeviceMappings
+          _Required: false
+        EbsOptimized:
+          _Type: boolean
+          _Required: false
+        ImageId:
+          _Type: Fn::Pipeline::ImageId
+          _Required: false
+          # TODO: Required and Configurable if no BakeInstance is specified
+          # _Required:
+          #   Spec::Not:
+          #     Spec::Property: [ '.^.^.BakeInstance' ]
+          # _Configurable:
+          #   Spec::Not:
+          #     Spec::Property: [ '.^.^.BakeInstance' ]
+        InstanceType:
+          _Type: string
+        KeyName:
+          _Type: string
+          _Required: false
+
+    Alarm:
+      _KeyRegex: ".*Alarm"
+      _KeyCardinality: 0-20
+      _Type: Resource::AWS::CloudWatch::Alarm
+
+    LogGroup:
+      _Required: false
+      _Type: Resource::AWS::Logs::LogGroup
+
+    LogGroupMetricFilter:
+      _KeyRegex: ".*LogGroupMetricFilter"
+      _KeyCardinality: 0-20
+      _Type: Resource::AWS::Logs::MetricFilter
+
+    ScalingPolicy:
+      _KeyRegex: '.*ScalingPolicy'
+      _KeyCardinality: 0-20
+      _Type: Resource::AWS::AutoScaling::ScalingPolicy
+
+    ScheduledAction:
+      _KeyRegex: '.*ScheduledAction'
+      _KeyCardinality: 0-20
+      _Type: Resource::AWS::AutoScaling::ScheduledAction

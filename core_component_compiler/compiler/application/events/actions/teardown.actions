@@ -1,0 +1,30 @@
+{% set status_details = { "Scope": "build", "Environment": context.Environment } %}
+
+- Type: System::NoOp
+  Label: "{{ context.BuildPrn }}:action/pre-teardown/status-starting"
+  DependsOn: []
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: TEARDOWN_IN_PROGRESS
+          Message: "Build teardown started"
+        Identity: "{{ context.BuildPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}
+
+- Type: System::NoOp
+  Label: "{{ context.BuildPrn }}:action/post-teardown/status-complete"
+  DependsOn:
+    - "{{ context.BuildPrn }}:*:action/teardown/*"
+  LifecycleHooks:
+    - Type: status
+      States: [ Complete ]
+      Parameters:
+        OnComplete:
+          Status: TEARDOWN_COMPLETE
+          Message: "Build teardown successful"
+        Identity: "{{ context.BuildPrn }}"
+        Details:
+          {{ status_details | to_yaml | indent(10) }}

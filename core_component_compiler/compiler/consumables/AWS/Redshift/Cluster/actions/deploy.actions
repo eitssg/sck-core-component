@@ -1,0 +1,3 @@
+{% include "AWS/_shared/actions/deploy-persist.actions" %}
+{% set status_details = { "Scope": "component", "Consumable": app[component_name].Type, "Environment": context.Environment } %}
+# No Cloudwatch Log Exports for Redshift.

@@ -1,0 +1,120 @@
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::ApplicationLoadBalancer - {{ component_name }} - pointers
+
+Parameters:
+  BaseStackName:
+    Type: String
+
+  ResourcesStackName:
+    Type: String
+
+Resources:
+  # Private Deployment DNS
+  PrivateDeploymentDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName:
+          Fn::ImportValue:
+            Fn::Sub: "${ResourcesStackName}:LoadBalancerDnsName"
+        EvaluateTargetHealth: false
+        HostedZoneId:
+          Fn::ImportValue:
+            Fn::Sub: "${ResourcesStackName}:LoadBalancerHostedZoneId"
+      Type: A
+      HostedZoneId:
+        Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:HostedZoneId
+      Name:
+        Fn::Sub:
+          - "{{ names.deployment_dns_prefix_hyphen }}.${RegionalHostedZoneName}"
+          - RegionalHostedZoneName:
+              Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:RegionalHostedZoneName
+
+  {% if (app[component_name].Configuration.ApplicationLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+  # Public Deployment DNS
+  PublicDeploymentDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName:
+          Fn::ImportValue:
+            Fn::Sub: "${ResourcesStackName}:LoadBalancerDnsName"
+        EvaluateTargetHealth: false
+        HostedZoneId:
+          Fn::ImportValue:
+            Fn::Sub: "${ResourcesStackName}:LoadBalancerHostedZoneId"
+      HostedZoneId:
+        Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:PublicOnlyHostedZoneId
+      Name:
+        Fn::Sub:
+          - "{{ names.deployment_dns_prefix_hyphen }}.${PublicOnlyRegionalHostedZoneName}"
+          - PublicOnlyRegionalHostedZoneName:
+              Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:PublicOnlyRegionalHostedZoneName
+      Type: A
+  {% endif %}
+
+Outputs:
+  Build:
+    Value: "{{ context.Build }}"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:Build"
+
+  BaseStackName:
+    Value:
+      Ref: BaseStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BaseStackName"
+
+  PointersStackName:
+    Value:
+      Ref: "AWS::StackName"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:PointersStackName"
+
+  ResourcesStackName:
+    Value:
+      Ref: ResourcesStackName
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:ResourcesStackName"
+
+  PrivateDeploymentDns:
+    Value:
+      Ref: PrivateDeploymentDnsRecord
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:PrivateDeploymentDns"
+
+  PublicDeploymentDns:
+    Value:
+      {% if (app[component_name].Configuration.ApplicationLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+      Ref: PublicDeploymentDnsRecord
+      {% else %}
+      "none"
+      {% endif %}
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:PublicDeploymentDns"
+
+  LoadBalancerArn:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:LoadBalancerArn"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:LoadBalancerArn"
+
+  {% for resource_name, resource in app[component_name].Configuration.items() if resource_name.endswith('Listener') %}
+  {{ resource_name }}Arn:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: "${ResourcesStackName}:{{ resource_name }}Arn"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:{{ resource_name }}Arn"
+  {% endfor %}

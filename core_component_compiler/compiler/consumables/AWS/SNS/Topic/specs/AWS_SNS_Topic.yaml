@@ -1,0 +1,30 @@
+AWS::SNS::Topic:
+  _Type: Component
+  Configuration:
+    Topic:
+      Pipeline::Security:
+        _Type: Pipeline::IamSecurity
+        _Required: false
+        _ListItemSpec:
+          Allow:
+            _ListItemSpec:
+              _StringEnum: [ read, write, admin ]
+      Properties:
+              _Required: false
+              TopicName:
+                _Required: false
+                _Type: string
+              DisplayName:
+                _Required: false 
+                _Type: string
+              Subscription:
+                _Required: false
+                _Type: list
+                _ListItemSpec:
+                  Protocol:
+                    _Required: false
+                    _Type: string
+                    _StringEnum: ['http','https','email','email-json','sms','sqs']
+                  Endpoint:
+                    _Required: false 
+                    _Type: string

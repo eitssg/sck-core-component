@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::S3::Storage - {{ component_name }} - resources
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Resources:
+  {% set resource = app[component_name].Configuration.Storage %}
+  {% set scope = resource.Properties.Scope | d('build') | capitalize %}
+  {% if resource.Properties.Prefix | d('') == '' %}
+    {% set prefix = context[scope + 'FilesPrefix'] %}
+  {% else %}
+    {% set prefix = context[scope + 'FilesPrefix'] + '/' + resource.Properties.Prefix %}
+  {% endif %}
+  WaitConditionHandle:
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+Outputs:
+  BucketArn:
+    Value: "arn:aws:s3:::{{ context.FilesBucketName }}"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BucketArn"
+
+  BucketName:
+    Value: "{{ context.FilesBucketName }}"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:BucketName"
+
+  Prefix:
+    Value: "{{ prefix }}"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:Prefix"
+
+  S3Url:
+    Value: "s3://{{ context.FilesBucketName }}/{{ prefix }}"
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:S3Url"

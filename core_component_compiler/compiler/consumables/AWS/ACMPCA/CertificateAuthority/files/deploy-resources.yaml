@@ -1,0 +1,147 @@
+---
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::ACMPCA::CertificateAuthority - {{ component_name }} - resources
+
+
+Parameters:
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+
+Resources:
+  {% set resource = app[component_name].Configuration.RootCA %}
+  RootCA:
+    Type: AWS::ACMPCA::CertificateAuthority
+    Properties:
+      Type: ROOT
+      KeyAlgorithm: {{ resource.Properties.KeyAlgorithm }}
+      SigningAlgorithm: {{ resource.Properties.SigningAlgorithm }}
+      Subject:
+        Country: SG
+        Organization: SimpleGroup
+        OrganizationalUnit: {{ resource.Properties.OrganizationalUnit }}
+        DistinguishedNameQualifier: string
+        State: string
+        CommonName: '-'
+        SerialNumber: string
+        Locality: string
+        Title: string
+        Surname: string
+        GivenName: string
+        Initials: DG
+        Pseudonym: string
+        GenerationQualifier: DBG
+      RevocationConfiguration:
+        CrlConfiguration:
+          Enabled: false
+  {% set resource = app[component_name].Configuration.RootCACertificate %}
+  RootCACertificate:
+    Type: AWS::ACMPCA::Certificate
+    Properties:
+      CertificateAuthorityArn:
+        Ref: RootCA
+      CertificateSigningRequest:
+        Fn::GetAtt:
+        - RootCA
+        - CertificateSigningRequest
+      SigningAlgorithm: {{ resource.Properties.SigningAlgorithm }}
+      TemplateArn: arn:aws:acm-pca:::template/RootCACertificate/V1
+      Validity:
+        Type: DAYS
+        Value: {{ resource.Properties.Value }}
+  RootCAActivation:
+    Type: AWS::ACMPCA::CertificateAuthorityActivation
+    Properties:
+      CertificateAuthorityArn:
+        Ref: RootCA
+      Certificate:
+        Fn::GetAtt:
+        - RootCACertificate
+        - Certificate
+      Status: ACTIVE
+  RootCAPermission:
+    Type: AWS::ACMPCA::Permission
+    Properties:
+      Actions:
+        - IssueCertificate
+        - GetCertificate
+        - ListPermissions
+      CertificateAuthorityArn: !Ref RootCA
+      Principal: acm.amazonaws.com
+  {% set resource = app[component_name].Configuration.SubordinateCAOne %}
+  SubordinateCAOne:
+    Type: AWS::ACMPCA::CertificateAuthority
+    Properties:
+      Type: SUBORDINATE
+      KeyAlgorithm: {{ resource.Properties.KeyAlgorithm }}
+      SigningAlgorithm: {{ resource.Properties.SigningAlgorithm }}
+      Subject:
+        Country: SG
+        Organization: SimpleGroup
+        OrganizationalUnit: {{ resource.Properties.OrganizationalUnit }}
+        DistinguishedNameQualifier: string
+        State: string
+        CommonName: Sub1
+        SerialNumber: string
+        Locality: string
+        Title: string
+        Surname: string
+        GivenName: string
+        Initials: DG
+        Pseudonym: string
+        GenerationQualifier: DBG
+      RevocationConfiguration: {}
+      Tags: []
+  {% set resource = app[component_name].Configuration.SubordinateCAOneCACertificate %}
+  SubordinateCAOneCACertificate:
+    DependsOn: RootCAActivation
+    Type: AWS::ACMPCA::Certificate
+    Properties:
+      CertificateAuthorityArn:
+        Ref: RootCA
+      CertificateSigningRequest:
+        Fn::GetAtt:
+        - SubordinateCAOne
+        - CertificateSigningRequest
+      SigningAlgorithm: {{ resource.Properties.SigningAlgorithm }}
+      TemplateArn: arn:aws:acm-pca:::template/SubordinateCACertificate_PathLen3/V1
+      Validity:
+        Type: DAYS
+        Value: {{ resource.Properties.Value }}
+  SubordinateCAOneActivation:
+    Type: AWS::ACMPCA::CertificateAuthorityActivation
+    Properties:
+      CertificateAuthorityArn:
+        Ref: SubordinateCAOne
+      Certificate:
+        Fn::GetAtt:
+        - SubordinateCAOneCACertificate
+        - Certificate
+      CertificateChain:
+        Fn::GetAtt:
+        - RootCAActivation
+        - CompleteCertificateChain
+      Status: ACTIVE
+  SubordinateCAOnePermission:
+    Type: AWS::ACMPCA::Permission
+    Properties:
+      Actions:
+        - IssueCertificate
+        - GetCertificate
+        - ListPermissions
+      CertificateAuthorityArn: !Ref SubordinateCAOne
+      Principal: acm.amazonaws.com
+
+Outputs:
+  CompleteCertificateChain:
+    Value:
+      Fn::GetAtt:
+      - SubordinateCAOneActivation
+      - CompleteCertificateChain
+

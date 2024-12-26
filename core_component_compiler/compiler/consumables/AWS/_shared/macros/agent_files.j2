@@ -1,0 +1,33 @@
+{% macro agent_files(resource, component_name, image_alias, context, mode) %}
+{% if 'win' in image_alias %}
+{% if mode == 'bake' %}
+C:\pipeline\etc\cloudwatch_agent.json:
+  source: "{{ context.FilesBucketUrl }}/{{ context.BuildFilesPrefix }}/{{ component_name }}/userfiles/cloudwatchagent/bake-cloudwatch_agent.json"
+{% else %}
+C:\pipeline\etc\cloudwatch_agent.json:
+  source: "{{ context.FilesBucketUrl }}/{{ context.BuildFilesPrefix }}/{{ component_name }}/userfiles/cloudwatchagent/deploy-cloudwatch_agent.json"
+{% endif %}
+C:\pipeline\etc\common-config.toml:
+  source: "{{ context.FilesBucketUrl }}/{{ context.BuildFilesPrefix }}/{{ component_name }}/userfiles/cloudwatchagent/common-config.toml"
+{% else %}
+{% if mode == 'bake' %}
+/tmp/awslogs/awslogs.conf:
+  source: "{{ context.FilesBucketUrl }}/{{ context.BuildFilesPrefix }}/{{ component_name }}/userfiles/awslogs/bake-awslogs.conf"
+{% if  (mode == 'bake' or mode == 'install') and ( 'Properties' in resource and 'Dynatrace' in resource.Properties and resource.Properties.Dynatrace == True) %}
+/root/install-dynatrace.sh:
+  source: "{{ context.FilesBucketUrl }}/files/shared/dynatrace/{{ context.Environment }}/Dynatrace-Agent-Linux-x86-{{  resource.Properties.DynatraceVersion | d('latest') }}.sh"
+{% endif %}
+{% else %}
+/tmp/awslogs/awslogs.conf:
+  source: "{{ context.FilesBucketUrl }}/{{ context.BuildFilesPrefix }}/{{ component_name }}/userfiles/awslogs/deploy-awslogs.conf"
+{% endif %}
+{% set agentlist = resource | extract('Metadata."Pipeline::Agents"', {}) %}
+{% for agentname, config in agentlist.items() %}
+{% set agent_context = context.get('Agents', {}).get(agentname, {}) %}
+{% if agentname == 'datadog' and agent_context.enabled == True and config.enabled == True %}
+/tmp/ansible/datadog.yaml:
+  source: "{{ context.FilesBucketUrl }}/{{ context.BuildFilesPrefix }}/{{ component_name }}/userfiles/ansible/datadog.yaml"
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endmacro %}

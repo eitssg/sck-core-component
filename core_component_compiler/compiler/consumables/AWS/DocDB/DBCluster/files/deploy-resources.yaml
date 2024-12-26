@@ -1,0 +1,153 @@
+---
+{% import "AWS/_shared/vars/names.j2" as names with context %}
+{% set db_cluster_id  = names.base_build_name_hyphenated | shorten_unique(63, unique_length=10) %}
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS::DocDB::DBCluster - {{ component_name }} - resources
+Parameters:
+
+  KmsKeyArn:
+    Type: String
+    Default: ""
+
+  SecurityStackName:
+    Type: String
+
+Conditions:
+
+  KmsKeyExists: {"Fn::Not": ["Fn::Equals": [Ref: KmsKeyArn, ""]]}
+
+Resources:
+
+  # Document DB Cluster
+  {% set resource = app[component_name].Configuration.DBCluster %}
+  DBCluster:
+    Type: AWS::DocDB::DBCluster
+    #    DeletionProtection: {{ resource.Properties.DeletionProtection | d('false') }}
+    DependsOn:
+      - DocumentDBLogGroup
+    Properties:
+      BackupRetentionPeriod: {{ resource.Properties.BackupRetentionPeriod | d(7) }}
+      MasterUserName: {{ resource.Properties.MasterName | d({ 'Ref': 'AWS::NoValue' }) }}
+      DBClusterIdentifier: {{ db_cluster_id }}
+      DBClusterParameterGroupName:
+        Ref: DBClusterParameterGroup
+      DBSubnetGroupName:
+        Fn::ImportValue: "core-network:{{ context.VpcAliases['private'] }}:DbSubnetGroupName"
+      EnableCloudwatchLogsExports:  # Note: Depends on db engine being used.
+        - audit
+      EngineVersion: {{ resource.Properties.EngineVersion | d({ 'Ref': 'AWS::NoValue' }) }}
+      KmsKeyId:
+        Fn::If:
+          - KmsKeyExists
+          - Ref: KmsKeyArn
+          - Ref: "AWS::NoValue"
+      MasterUsername: {{ resource.Properties.MasterUsername }}
+      MasterUserPassword:
+        Fn::Join: ['', ['{{ '{{' }}resolve:secretsmanager:', !Ref DbSecret, ':SecretString:password{{ '}}' }}' ]]
+      Port: {{ resource.Properties.Port | d(27017) }}
+      PreferredBackupWindow: {{ resource.Properties.PreferredBackupWindow | d({ 'Ref': 'AWS::NoValue' }) }}
+      PreferredMaintenanceWindow: {{ resource.Properties.PreferredMaintenanceWindow | d({ 'Ref': 'AWS::NoValue' }) }}
+      StorageEncrypted: true
+      VpcSecurityGroupIds:
+        - Fn::ImportValue:
+            Fn::Sub: "${SecurityStackName}:SecurityGroupId"
+        {% for rule in resource | ip_rules(source_types=['sg-attachment']) %}
+        - Fn::ImportValue: "{{ rule.Value }}"
+        {% endfor %}
+      {% if 'DBSnapshotIdentifier' in resource.Properties %}
+      SnapshotIdentifier: {{ resource.Properties.DBSnapshotIdentifier }}
+      {% endif %}
+
+  DbSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: "{{ names.base_build_name_hyphenated }}-dbsecret"
+      Description: "DocumentDB master user name, password"
+      KmsKeyId: !Ref KmsKeyArn
+      GenerateSecretString:
+        SecretStringTemplate: "{\"username\": \"{{ resource.Properties.MasterUsername }}\"}"
+        ExcludeUppercase: false
+        IncludeSpace: false
+        PasswordLength: 32
+        ExcludePunctuation: true
+        ExcludeLowercase: false
+        ExcludeNumbers: false
+        GenerateStringKey: "password"
+
+  # Attaches the secret to the rds database resource.
+  DbSecretAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId:
+        Ref: DbSecret
+      TargetId:
+        Ref: DBCluster
+      TargetType: AWS::DocDB::DBCluster
+
+  {% set resource = app[component_name].Configuration.DBClusterParameterGroup %}
+  DBClusterParameterGroup:
+    Type: AWS::DocDB::DBClusterParameterGroup
+    Properties:
+      Description: {{ resource.Properties.Description }}
+      Family: {{ resource.Properties.Family }}
+      Parameters:
+        {% if 'Parameters' in resource.Properties %}
+        {{ resource.Properties.Parameters | to_yaml | indent(8) }}
+        {% endif %}
+
+  {% include "AWS/DocDB/DBCluster/remotefiles/deploy-dbinstance.yaml" %}
+
+  {% if 'DbInstanceParameterGroup' in app[component_name].Configuration %}
+  {% set resource = app[component_name].Configuration.DbInstanceParameterGroup %}
+  DbInstanceParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: {{ resource.Properties.Description }}
+      Family: {{ resource.Properties.Family }}
+      {% if 'Parameters' in resource.Properties %}
+      Parameters:
+        {{ resource.Properties.Parameters | to_yaml | indent(8) }}
+      {% endif %}
+  {% endif %}
+
+  # ----------
+  # Log Groups
+  # See https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/AuroraPostgreSQL.CloudWatch.html
+  # ----------
+
+  DocumentDBLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: "/aws/DocumentDB/{{ db_cluster_id }}/DocumentDBLogGroup"
+      RetentionInDays: {{ app[component_name].Configuration | extract('GeneralLogGroup.Properties.RetentionInDays', 90) }}
+
+Outputs:
+
+  {% set resource = app[component_name].Configuration.DBCluster %}
+
+  DBClusterId:
+    Value:
+      Ref: DBCluster
+    Export:
+      Name: !Sub "${AWS::StackName}:DBClusterId"
+
+  DBClusterEndpoint:
+    Value: !GetAtt DBCluster.Endpoint
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}:DBClusterEndpoint"
+
+  DBClusterPort:
+    Value: !GetAtt DBCluster.Port
+    Export:
+      Name: !Sub "${AWS::StackName}:DBClusterPort"
+
+  DbSecretId:
+    Value: !Ref DbSecret
+    Export:
+      Name: !Sub "${AWS::StackName}:DbSecretId"
+
+  DbReaderEndpoint:
+    Value: !GetAtt DBCluster.ReadEndpoint
+    Export:
+      Name: !Sub "${AWS::StackName}:DbReaderEndpoint"
