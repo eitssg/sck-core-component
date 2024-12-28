@@ -5,7 +5,7 @@ build-backend = "poetry_dynamic_versioning.backend"
 [tool.poetry]
 name = "sck-core-component"
 description = "Core-Automation Component Compiler"
-version = "0.0.1"
+version = "0.0.2"
 license = "GPL-3.0-only"
 readme = "README.md"
 authors = [ "James Barwick <jbarwick@me.com>",]
@@ -28,8 +28,8 @@ deepdiff = "^7.0.1"
 jinja2 = "^3.1.4"
 jmespath = "^1.0.1"
 
-sck-core-framework = "^0.0.1"
-sck-core-db = "^0.0.1"
+sck-core-framework = "^0.0.2"
+sck-core-db = "^0.0.2"
 [[tool.poetry.source]]
 name = "nexus"
 url = "https://monster-jj.jvj28.com:9091/repository/pypi/simple/"
