@@ -11,6 +11,7 @@ readme = "README.md"
 authors = [ "James Barwick <jbarwick@me.com>",]
 maintainers = [ "James Barwick <jbarwick@me.com>",]
 keywords = ["sck", "core", "aws", "cloud", "automation"]
+include = ["core_component/_version.py"]
 
 [[tool.poetry.packages]]
 include = "core_component"
