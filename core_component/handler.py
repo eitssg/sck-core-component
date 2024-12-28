@@ -536,14 +536,16 @@ def __validate_definitions(
             any_errors = True
             message = "Component '{}' has failed validation".format(component_name)
             log.error(
-                message, details={"ValidationErrors": errors, "ValidationWarnings": warnings}
+                message,
+                details={"ValidationErrors": errors, "ValidationWarnings": warnings},
             )
         elif warnings:
             message = "Component '{}' has one or more validation warnings".format(
                 component_name
             )
             log.warn(
-                message, details={"ValidationErrors": errors, "ValidationWarnings": warnings}
+                message,
+                details={"ValidationErrors": errors, "ValidationWarnings": warnings},
             )
 
         # Update the component status

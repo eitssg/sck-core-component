@@ -97,7 +97,9 @@ class Validator:
 
         self.validation_warnings.append(item)
 
-    def __validate(self, spec_key: str, spec: dict, obj_key: str, obj: Any):  # noqa: C901
+    def __validate(
+        self, spec_key: str, spec: dict, obj_key: str, obj: Any
+    ):  # noqa: C901
         # Current key is last label of the FQ key
         key = obj_key.split(".")[-1]
 
@@ -516,7 +518,9 @@ class Validator:
             isinstance(obj, str) and spec.get(self.__spec_key("FloatTypecast"), True)
         )
 
-    def __validate_float(self, spec_key: str, spec: dict, obj_key: str, obj: Any):  # noqa: C901
+    def __validate_float(
+        self, spec_key: str, spec: dict, obj_key: str, obj: Any
+    ):  # noqa: C901
         log.trace("Validating float '{}'".format(obj_key))
 
         # Validate object type
@@ -619,7 +623,9 @@ class Validator:
 
         return False
 
-    def __validate_int(self, spec_key: str, spec: dict, obj_key: str, obj: Any) -> None:  # noqa: C901
+    def __validate_int(
+        self, spec_key: str, spec: dict, obj_key: str, obj: Any
+    ) -> None:  # noqa: C901
         log.trace("Validating int '{}'".format(obj_key))
 
         # Validate object type
@@ -819,7 +825,7 @@ class Validator:
                 spec_key, spec[self.__spec_key("ListItemSpec")], fq_obj_key, item
             )
 
-    def __validate_multiple(    # noqa: C901
+    def __validate_multiple(  # noqa: C901
         self, spec_key: str, spec: dict, obj_key: str, obj: Any
     ) -> None:
         specs = spec[self.__spec_key("MultipleSpecs")]
