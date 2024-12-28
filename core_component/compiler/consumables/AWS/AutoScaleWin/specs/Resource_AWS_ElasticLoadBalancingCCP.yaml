@@ -2,7 +2,7 @@ Resource::AWS::ElasticLoadBalancingCCP::Listener::ALB:
   Properties:
     Certificates:
       _Type: list
-      _Required: 
+      _Required:
         Spec::Property: [ Protocol, HTTPS ]
       _ListLength: 1
       _ListItemSpec:
@@ -53,10 +53,10 @@ Resource::AWS::ElasticLoadBalancingCCP::ListenerRule:
       _ListItemSpec:
         TargetGroupArn:
           _Type: aws-string
-          _Requred: true
+          _Required: true
         Type:
           _Type: string
-          _Requred: true
+          _Required: true
           _StringEnum: [ forward, redirect, fixed-response ]
     Conditions:
       _Type: list

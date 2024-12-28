@@ -177,13 +177,10 @@ AWS::CloudFront::Distribution::CustomOrigins:
   Id:
     _Type: string
     _Required: true
-    _ListItemType: string
     # TODO: sets of allowed arrays
   DomainName:
     _Type: string
     _Required: true
-    _ListItemType: string
   Type:
     _Type: string
     _Required: true
-    _ListItemType: string

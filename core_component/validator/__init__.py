@@ -65,7 +65,7 @@ def validate_specs() -> list:
     spec_spec_library = SpecLibrary(
         spec_file_globs=[os.path.join(script_dir, "specs", "*.yaml")], meta_prefix="__"
     )
-    errors = []
+    errors: list = []
     specs = spec_library.get_specs()
 
     spec_spec = spec_spec_library.get_spec("Spec")

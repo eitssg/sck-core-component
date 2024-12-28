@@ -395,7 +395,7 @@ class Validator:
         for unknown_key in unknown_keys:
             fq_obj_key = obj_key + "." + unknown_key
             self.__log_validation_error(
-                spec_key, spec, fq_obj_key, obj, "Unsupported property"
+                spec_key, spec, fq_obj_key, obj, f"Unsupported property {unknown_key}"
             )
 
     def __validate_dict_item(  # noqa: C901
@@ -437,7 +437,7 @@ class Validator:
                 )
             elif cardinality_min == 0 and cardinality_max == 0:
                 self.__log_validation_error(
-                    spec_key, spec, fq_obj_key, obj, "Unsupported property"
+                    spec_key, spec, fq_obj_key, obj, f"Unsupported property {str(keys)}"
                 )
             elif cardinality_min == cardinality_max:
                 self.__log_validation_error(

@@ -57,10 +57,10 @@ Resource::AWS::ElasticLoadBalancingV2::ListenerRule:
       _ListItemSpec:
         TargetGroupArn:
           _Type: aws-string
-          _Requred: true
+          _Required: true
         Type:
           _Type: string
-          _Requred: true
+          _Required: true
           _StringEnum: [ forward, redirect, fixed-response ]
     Conditions:
       _Type: list
