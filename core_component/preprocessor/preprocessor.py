@@ -1,10 +1,11 @@
 from typing import Any
-
-import io
-import core_logging as log
 import re
-from ruamel import yaml
+import io
+from ruamel.yaml import YAML
+
 import core_framework as util
+
+import core_logging as log
 
 from core_renderer import Jinja2Renderer
 
@@ -12,45 +13,9 @@ DEFINITION_FILE_PATTERN = r"components/[^/\\]+\.yaml$"
 VARS_FILE_PATTERN = r"vars/[^/\\]+\.yaml$"
 
 
-def load_user_variables(
+def __render_component_defintitions(
     files: dict[str, Any], context: dict[str, Any]
 ) -> dict[str, Any]:
-    """Load apps ``platform/vars/*.yaml``, e.g::
-
-        SomeCfnProp: {{ vars.FooBar }}
-
-    Keyed off branch name, _defaults also supported.
-
-    **Be careful** - these vars files are merged in alphabetical order, so the same keys in 2 vars files will clobber each others values.
-    """
-
-    # Load variables files
-    variables: dict = {}
-    for filename in files:
-
-        # Skip non-vars files
-        if not re.match(VARS_FILE_PATTERN, filename):
-            continue
-
-        log.debug("Processing variables file '{}'".format(filename))
-        stream = io.StringIO(files[filename])
-        stream.name = filename
-        file_variables = yaml.YAML(typ="safe").load(stream)
-
-        if file_variables is None:
-            file_variables = {}
-
-        variables = {**variables, **file_variables}
-
-    # Load variables for this branch
-    variables = __select_branch_variables(context["context"]["Branch"], variables)
-
-    log.debug("User variables include: {}".format(list(variables.keys())))
-
-    return variables
-
-
-def run(files: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     """
     Load the component definitions from the provided files and render them
     with Jinja2 using the provided context.
@@ -62,6 +27,8 @@ def run(files: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     Returns:
         dict: The rendered component definitions.
     """
+    log.debug("Running preprocessor.  Template rendering component definitions")
+
     # Render the definitions files
     renderer = Jinja2Renderer(dictionary=files)
 
@@ -78,15 +45,15 @@ def run(files: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
         # YAML load and save the component definitions
         stream = io.StringIO(rendered)
         stream.name = filename
-        file_definitions = yaml.YAML(typ="safe").load(stream)
+        file_definitions = YAML(typ="rt").load(stream)
 
-        if file_definitions is None:
-            # Empty file - just ignore it
+        # If empty file - just ignore it
+        if not file_definitions:
             continue
 
+        # Add definitions in this file to other definitions
         if isinstance(file_definitions, dict):
-            # Add definitions in this file to other definitions
-            definitions = {**definitions, **file_definitions}
+            definitions.update(file_definitions)
         else:
             raise RuntimeError(
                 "Invalid component definition file '{}'".format(filename)
@@ -95,58 +62,124 @@ def run(files: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     return definitions
 
 
-def __select_branch_variables(branch: str, variables: dict[str, Any]) -> dict[str, Any]:
-    # Load defaults
+def __select_branch_variables(
+    branch: str, variables: dict[str, Any]
+) -> dict[str, Any]:  # noqa: C901
+    """Load default variables AND ALL variables section that match the branch name.
 
-    if "_defaults" in variables:
-        log.debug("Loading default user variables")
-        defaults = variables["_defaults"]
-    else:
-        log.debug("No default user variables (_defaults) were provided")
-        defaults = {}
+    THIS IS A CHANGE.
 
-    current_matched_pattern = None
-    current_specificity = -1
+    The old methdology attemted to find ONE section in the variables file that matched the branch name.
+    A "best match" approach.
+
+    This new method will load the default variables AND ALL variables sections that match the branch name.
+
+    So, if your branch name is "dev" and the variables file contains:
+
+    _defaults:
+        Lab: Default
+        Foo: bar
+
+    dev:
+        Ptn: dev
+        Foo: baz
+
+    de*:
+        Foo: qux
+
+    d*:
+        Foo: quux
+        Item: 123
+
+    another:
+        match: ^dev$
+        Ref: 456
+
+    Then the resulting variables will be:
+
+    { Lab: Default, Ptn: dev, Foo: quux, Item: 123, Ref: 456 }
+
+    All sections are inspected and merged. SEQUENCING is important.  The last section to set a value for a key wins.
+
+    """
+
+    result_variables: dict = {}
 
     for branch_pattern, branch_variables in variables.items():
-        # Don't consider _default as a branch pattern
-        if branch_pattern == "_defaults":
+        if not isinstance(branch_variables, dict):
             continue
 
-        if branch == branch_pattern:
-            # Branch name matches exactly
-            current_matched_pattern = branch_pattern
-            current_specificity = len(branch_pattern)
-            break
-
-        elif branch_pattern.endswith("*"):
-            # Pattern match the branch
-            branch_prefix = branch_pattern.rstrip("*")
-
-            # Bail out if we don't have a match
-            if not branch.startswith(branch_prefix):
-                continue
-
-            # Bail out if we already have a more specific match
-            specificity = len(branch_prefix)
-            if specificity <= current_specificity:
-                continue
-
-            # This is the most specific match so far, save it
-            current_matched_pattern = branch_pattern
-            current_specificity = specificity
-
-        else:
-            # Not an exact match and not a pattern match
-            continue
-
-    if current_matched_pattern is not None:
-        log.info(
-            "Selecting variables pattern '{}' for branch '{}'".format(
-                current_matched_pattern, branch
+        # Match by name
+        if branch_pattern in ["_defaults", "_default", "defaults", "default", branch]:
+            util.deep_merge_in_place(
+                result_variables, branch_variables, merge_lists=True
             )
-        )
-        return util.deep_merge(defaults, variables[current_matched_pattern])
+            continue
 
-    log.info("No variables pattern found for branch '{}'".format(branch))
-    return defaults
+        # Match by wildcard
+        if branch_pattern.endswith("*"):
+            branch_prefix = branch_pattern.rstrip("*")
+            if branch.startswith(branch_prefix):
+                util.deep_merge_in_place(
+                    result_variables, branch_variables, merge_lists=True
+                )
+                continue
+
+        # Match by regex pattern
+        regex = branch_variables.get("match", None)
+        if regex and re.match(regex, branch):
+            util.deep_merge_in_place(
+                result_variables, branch_variables, merge_lists=True
+            )
+            continue
+
+    return result_variables
+
+
+def load_user_variables(
+    files: dict[str, Any], context: dict[str, Any]
+) -> dict[str, Any]:
+    """
+    Load apps ``platform/vars/*.yaml``,
+
+    for use on the context:
+
+    SomeCfnProp: {{ vars.FooBar }}
+
+    CHANGE IN FUNCTIONALITY.
+
+    The old method used to read each file in alphabetical order and sectins would overwrite a previously read
+    section.
+
+    NEW METHOD
+
+    The new method will read all variables files and MERGE them.  Any sections that thave the same names
+    will be MERGED.  Indeed, if a later file updates a variable in a section, the later file will win.
+
+    Once all VARS have bee "MERGED", the vars for your specific branch (matched) will be selected as a result.
+
+    """
+    log.info("Loading user variables")
+
+    # Load variables files
+    variables: dict = {}
+    for filename in files:
+
+        # Skip non-vars files
+        if not re.match(VARS_FILE_PATTERN, filename):
+            continue
+
+        log.debug("Processing variables file '{}'".format(filename))
+        stream = io.StringIO(files[filename])
+        stream.name = filename
+        file_variables = YAML(typ="rt").load(stream)
+        util.deep_merge_in_place(variables, file_variables, merge_lists=True)
+
+    branch = context["context"]["Branch"]
+
+    # Load variables for this branch
+    branch_variables = __select_branch_variables(branch, variables)
+
+    log.debug("Branch '{}' variables included:", branch, details=branch_variables)
+
+    return branch_variables

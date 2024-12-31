@@ -6,41 +6,29 @@
 """
 
 from typing import Any
-
-import io
 import os
+import io
 import re
 import core_helper.aws as aws
 import jmespath
 import traceback
 import zipfile as zip
 import json
+from datetime import datetime
 
 import core_logging as log
 
 import core_framework as util
-from core_framework.constants import (
-    ENV_ENFORCE_VALIDATION,
-    ENV_ENVIRONMENT,
-    SCOPE_PORTFOLIO,
-    SCOPE_APP,
-    SCOPE_BRANCH,
-    SCOPE_BUILD,
-    V_LOCAL,
-    V_PACKAGE_ZIP,
-)
+from core_framework.constants import V_LOCAL
+from core_framework.status import COMPILE_COMPLETE, COMPILE_FAILED, COMPILE_IN_PROGRESS
 
 from core_framework.models import TaskPayload, PackageDetails
-from core_framework.magic import MagicBucket
+from core_framework.magic import MagicS3Client
 
-from core_db.dbhelper import (
-    register_item,
-    update_status,
-    update_item,
-    get_facts_by_identity,
-)
+from core_db.dbhelper import register_item, update_status, update_item
+from core_db.facter import get_facts
 
-from .preprocessor import load_user_variables, run
+from .preprocessor import load_user_variables, __render_component_defintitions
 from .compiler import combine_result_files, compile_app_files, render_component
 from .validator import validate_component
 
@@ -81,8 +69,10 @@ class CompileException(Exception):
 
 
 def execute(task_payload: TaskPayload) -> dict:
-
+    """Execute the compilation process. for pipelines.  Applcation template compiler."""
     try:
+        log.info("Starting component compilation")
+
         deployment_details = task_payload.DeploymentDetails
 
         branch_prn = deployment_details.get_branch_prn()
@@ -98,27 +88,37 @@ def execute(task_payload: TaskPayload) -> dict:
         register_item(branch_prn, deployment_details.Branch)
         register_item(build_prn, deployment_details.Build, status="COMPILE_IN_PROGRESS")
 
-        facts = __load_facts(task_payload)
+        facts = get_facts(deployment_details)
 
-        update_status(build_prn, "COMPILE_IN_PROGRESS", "Build compilation started")
+        update_status(
+            build_prn,
+            COMPILE_IN_PROGRESS,
+            "Build compilation started at {}".format(datetime.now().isoformat()),
+        )
 
+        # Load all files into memory from package.zip.  How much memory will this take?
         files = __download_package(task_payload.Package)
 
-        definitions, variables = __run_preprocessor(task_payload, facts, files)
+        # Create the context for the jinja2 template engine with the facts and add in the user branch variables from files
+        context = __create_context(task_payload, facts, files)
 
-        compile_context = __construct_compile_context(task_payload, facts, variables)
+        # Will return with component definitions fully rendered
+        definitions = __render_component_defintitions(files, context)
 
-        __register_components(task_payload, definitions, compile_context)
+        # Register the components into the Database that will are defined in this deployment
+        __register_components(task_payload, definitions, context)
 
-        result = __compile_components(task_payload, facts, definitions, compile_context)
+        # Compile the components.  Raises an excepton on any failure.
+        result = __compile_components(task_payload, facts, definitions, context)
 
-        update_status(build_prn, "COMPILE_COMPLETE")
+        # All is ok, no exception thrown. So, update the build status accordingly.
+        update_status(build_prn, COMPILE_COMPLETE)
 
         return result
 
     except CompileException as e:
         try:
-            update_status(build_prn, "COMPILE_FAILED", str(e.message))
+            update_status(build_prn, COMPILE_FAILED, str(e.message))
         except Exception:
             pass
         return __return(
@@ -132,7 +132,7 @@ def execute(task_payload: TaskPayload) -> dict:
 
     except Exception as e:
         try:
-            update_status(build_prn, "COMPILE_FAILED", str(e))
+            update_status(build_prn, COMPILE_FAILED, str(e))
         except Exception:
             pass
         log.error(
@@ -146,51 +146,49 @@ def execute(task_payload: TaskPayload) -> dict:
         }
 
 
-def __load_facts(task_payload: TaskPayload) -> dict:
-
-    deployment_details = task_payload.DeploymentDetails
-
-    # Retrieve deployment facts about this app build
-    facts = get_facts_by_identity(
-        deployment_details.Client, deployment_details.get_identity()
-    )
-
-    if "EnforceValidation" not in facts:
-        facts["EnforceValidation"] = (
-            os.getenv(ENV_ENFORCE_VALIDATION, "false").lower() == "true"
-        )
-    if "Environment" not in facts:
-        facts["Environment"] = os.getenv(ENV_ENVIRONMENT, "prod")
-
-    return facts
-
-
-def __run_preprocessor(
+def __create_context(
     task_payload: TaskPayload, facts: dict[str, Any], files: dict[str, Any]
-) -> tuple[dict, dict]:
+) -> dict:
+    """
+
+    The idea is to read from the package.zip file the "platform/vars/*.yaml" files
+    and add them to the jinja context.  It will build a context with the following
+
+    {
+        "context": {facts data from the deployment details},
+        "vars": {vars data from the vars files in package.zip}
+    }
+
+    Args:
+        task_payload (TaskPayload): The task payload object
+        facts (dict): The facts dictionary
+        files (dict): The files dictionary
+
+    Returns:
+        dict: The jija2 context dictionary
+
+    """
+
     # Render the component definition files
     try:
+
+        log.debug("Processing component definition files")
 
         deployment_details = task_payload.DeploymentDetails
         build_prn = deployment_details.get_build_prn()
 
-        preprocessor_context = {
-            "context": {
-                **facts,
-                **deployment_details.model_dump(),
-            }
-        }
+        preprocessor_context = {"context": facts}
+
+        # We will preporocess variable files with the current context
         variables = load_user_variables(files, preprocessor_context)
 
         preprocessor_context["vars"] = variables
 
-        definitions = run(files, preprocessor_context)
-
-        return definitions, variables
+        return preprocessor_context
 
     except Exception as e:
         update_status(
-            build_prn, "COMPILE_FAILED", "Error processing component definition files"
+            build_prn, COMPILE_FAILED, "Error processing component definition files"
         )
 
         exception_message = str(e)
@@ -209,6 +207,8 @@ def __run_preprocessor(
 def __register_components(
     task_payload: TaskPayload, definitions: dict, compile_context: dict
 ):
+    log.info("Registering components with the Database")
+    log.debug("Registering components with the Database", details=definitions)
 
     deployment_details = task_payload.DeploymentDetails
     build_prn = deployment_details.get_build_prn()
@@ -218,11 +218,15 @@ def __register_components(
 
     # Register components with the API
     for component_name, definition in definitions.items():
+        if not isinstance(definition, dict):
+            continue
 
         component_prn = "{}:{}".format(build_prn, component_name)
         image_alias, image_id = __get_component_image(
             definition, compile_context["context"]["ImageAliases"]
         )
+
+        log.debug("Registering component with the database:", details=definition)
 
         if image_alias:
             log.debug(
@@ -230,6 +234,7 @@ def __register_components(
                     component_name, image_alias, image_id
                 )
             )
+
         register_item(
             component_prn,
             component_name,
@@ -243,13 +248,13 @@ def __compile_components(
     task_payload: TaskPayload, facts: dict, definitions: dict, compile_context: dict
 ) -> dict:
 
+    log.info("Compiling components")
+
     deployment_details = task_payload.DeploymentDetails
     build_prn = deployment_details.get_build_prn()
 
     # Validate the components
-    validation_results = __validate_definitions(
-        build_prn, definitions, compile_context, facts["Environment"]
-    )
+    validation_results = __validate_definitions(build_prn, definitions, compile_context)
 
     # Collect together all the validation errors and warnings
     validation_errors = []
@@ -259,10 +264,10 @@ def __compile_components(
         validation_warnings += result["ValidationWarnings"]
 
     # Fail compilation if validation is enforced and there are any validation errors
-    if enforce_validation() and validation_errors:
+    if util.is_enforce_validation() and validation_errors:
         update_status(
             build_prn,
-            "COMPILE_FAILED",
+            COMPILE_FAILED,
             "One or more components have failed validation",
         )
 
@@ -274,7 +279,7 @@ def __compile_components(
         )
 
     # Compile the components
-    compile_results = __compile_component_defintiions(
+    compile_results = __compile_component_definitions(
         build_prn=build_prn,
         definitions=definitions,
         context=compile_context,
@@ -287,11 +292,14 @@ def __compile_components(
         k: v for k, v in compile_results.items() if v["Status"] == "ok"
     }
 
+    log.debug("Updating build status")
+
     # Handle compliation failures
     if failed_components:
+        log.error("One or more components have failed compilation")
         update_status(
             build_prn,
-            "COMPILE_FAILED",
+            COMPILE_FAILED,
             "One or more components have failed compilation",
         )
         return __return(
@@ -305,6 +313,9 @@ def __compile_components(
 
     # Upload compiled files
     try:
+
+        log.info("Uploading compiled components")
+
         # Combine files from each compiled component
         compiled_files = combine_result_files(compile_results)
 
@@ -312,7 +323,10 @@ def __compile_components(
         __upload_compiled_files(task_payload, compiled_files)
 
     except Exception as e:
-        update_status(build_prn, "COMPILE_FAILED")
+        log.error(
+            "Error while uploading compiled components", details={"Error": str(e)}
+        )
+        update_status(build_prn, COMPILE_FAILED)
         return __return(
             "error",
             f"Error while uploading compiled components: {e}",
@@ -324,10 +338,13 @@ def __compile_components(
 
     # Complete
     message = "Compilation complete"
+
     if validation_errors:
         message += ", with {} validation errors".format(len(validation_errors))
     elif validation_warnings:
         message += ", with {} validation warnings".format(len(validation_warnings))
+
+    log.info(message)
 
     return __return(
         "ok",
@@ -337,10 +354,6 @@ def __compile_components(
         validation_errors,
         validation_warnings,
     )
-
-
-def enforce_validation():
-    return os.environ.get(ENV_ENFORCE_VALIDATION, "true").lower() == "true"
 
 
 def __return(
@@ -373,10 +386,10 @@ def __download_package(package: PackageDetails) -> dict[str, Any]:
     and put into a dictionary indexed by the filename.
 
     Args:
-        package (PackageDetails): _description_
+        package (PackageDetails): package containing locaton of package.zip
 
     Returns:
-        dict[str, Any]: _description_
+        dict[str, Any]: List of all files read from the package.zip
     """
 
     bucket_name = package.BucketName
@@ -397,13 +410,12 @@ def __download_package(package: PackageDetails) -> dict[str, Any]:
         },
     )
 
-    assert package.Key.endswith(V_PACKAGE_ZIP)
-
     if package.Mode == V_LOCAL:
-        bucket = MagicBucket(bucket_name, bucket_region)
+        local = MagicS3Client(Region=bucket_region, AppPath=package.AppPath)
+        bucket = local.Bucket(bucket_name)
     else:
-        s3 = aws.s3_resource(bucket_region)
-        bucket = s3.Bucket(package.BucketName)
+        s3 = aws.s3_resource(region=bucket_region)
+        bucket = s3.Bucket(bucket_name)
 
     extra_args = {}
     if package.VersionId is not None:
@@ -425,17 +437,23 @@ def __download_package(package: PackageDetails) -> dict[str, Any]:
     return files
 
 
-def __upload_compiled_files(task_payload: TaskPayload, files: dict):
+def __upload_compiled_files(task_payload: TaskPayload, files: dict) -> dict:
+    """
+    Upload files to storage
+
+    Args:
+        task_payload (TaskPayload): the task_payload object
+        files (dict): files to upload
+
+    Returns:
+        dict: returns a list of files with their upload results
+    """
 
     deployment_details = task_payload.DeploymentDetails
-    scope = deployment_details.Scope or SCOPE_BUILD
     is_s3 = task_payload.Package.Mode != V_LOCAL
 
-    s3_artefacts_prefix = util.get_artefacts_path(
-        deployment_details, None, scope, is_s3
-    )
-
-    s3_build_files_prefix = util.get_files_path(deployment_details, None, scope, is_s3)
+    s3_artefacts_prefix = deployment_details.get_artefacts_key(s3=is_s3)
+    s3_build_files_prefix = deployment_details.get_files_key(s3=is_s3)
 
     # Split user files and component files (uploaded to different locations)
     user_files = {}
@@ -453,40 +471,50 @@ def __upload_compiled_files(task_payload: TaskPayload, files: dict):
     # │   ├── branch-prod.yaml
     # │   ├── branch-nonprod.yaml
     # │   ├── branch-dev.yaml
-    # │   userfiles/
-    # │   ├── file3.png
-    # │   ├── file4.zip
     #
     # The package.zip is an archive containing all platform folder contents compnents, files and vars folders.
 
-    for file_name, body in files.items():
-        if "/userfiles/" in file_name:
-            user_files[file_name] = body
-        elif "/files/" in file_name:
-            user_files[file_name] = body
-        elif "/components/" in file_name:
-            component_files[file_name] = body
-        elif "/vars/" in file_name:
-            component_files[file_name] = body
-
-    bucket_name = task_payload.Package.BucketName
-    bucket_region = task_payload.Package.BucketRegion
+    package = task_payload.Package
+    bucket_name = package.BucketName
+    bucket_region = package.BucketRegion
 
     # Get the bucket
     if not is_s3:
-        bucket = MagicBucket(bucket_name, bucket_region)
+        local = MagicS3Client(Region=bucket_region, AppPath=package.AppPath)
+        bucket = local.Bucket(bucket_name)
+        sep = os.path.sep
     else:
         s3 = aws.s3_resource(bucket_region)
         bucket = s3.Bucket(bucket_name)
+        sep = "/"
 
-    # Upload component files to S3
-    __upload_objects(bucket, bucket_region, s3_artefacts_prefix, component_files)
+    result: dict = {}
+    # Upload component files to storage
+    for file_name, body in files.items():
+        if file_name.startswith("files/"):
+            user_files[file_name] = body
+            result = __upload_object(
+                bucket, bucket_region, s3_build_files_prefix, file_name, body, sep
+            )
 
-    # Upload userfiles to S3
-    __upload_objects(bucket, bucket_region, s3_build_files_prefix, user_files)
+        elif file_name.startswith("components/") or file_name.startswith("vars/"):
+            component_files[file_name] = body
+            result = __upload_object(
+                bucket, bucket_region, s3_artefacts_prefix, file_name, body, sep
+            )
+
+        else:
+            log.warn("Unknown file type", details={"FileName": file_name})
+            continue
+
+        result[file_name] = result
+
+    return result
 
 
-def __get_component_image(definition: dict, image_aliases: dict) -> tuple:
+def __get_component_image(
+    definition: dict, image_aliases: dict
+) -> tuple[str | None, str | None]:
     """
     Certain components have definition.Configuration.*.Properties.ImageId.Fn::Pipeline::ImageId.Name defined.
     Example: Autoscale|Cluster=BakeInstance|LaunchConfiguration, Instance
@@ -501,29 +529,49 @@ def __get_component_image(definition: dict, image_aliases: dict) -> tuple:
 
     """
     expression = jmespath.compile('Properties.ImageId."Fn::Pipeline::ImageId".Name')
-    for resource_name, resource in definition["Configuration"].items():
-        image_alias = expression.search(resource)
-        if image_alias is None:
-            continue
-        image_id = image_aliases.get(image_alias, None)
-        return (image_alias, image_id)
-    return (None, None)
+
+    configuration = definition.get("Configuration")
+    if isinstance(configuration, dict):
+
+        # Search for the image alias in the resources.  Don't worrry abou the resource name,
+        # we are only interested in the image alias.
+        for _, resource in configuration.items():
+            image_alias = expression.search(resource)
+            if image_alias is None:
+                continue
+            image_id = image_aliases.get(image_alias, None)
+            return image_alias, image_id
+
+    return None, None
 
 
-def __validate_definitions(
-    build_prn: str, definitions: dict, context: dict, environment: str
-) -> dict:
-    results = {}
+def __validate_definitions(build_prn: str, definitions: dict, context: dict) -> dict:
+    """
+    Validate component definitionss
+
+    Args:
+        build_prn (str): _description_
+        definitions (dict): _description_
+        context (dict): _description_
+        environment (str): _description_
+
+    Returns:
+        dict: results of the validation.
+    """
+
+    log.info("Validating component definitions")
+
+    results: dict = {}
 
     any_errors = False
     for component_name in sorted(definitions):
+
         component_prn = "{}:{}".format(build_prn, component_name)
         definition = definitions[component_name]
-        log.set_identity(component_prn)
 
         # Validate the component
         update_status(
-            component_prn, "COMPILE_IN_PROGRESS", "Validating component definition"
+            component_prn, COMPILE_IN_PROGRESS, "Validating component definition"
         )
 
         result = validate_component(component_name, definitions, context)
@@ -537,7 +585,11 @@ def __validate_definitions(
             message = "Component '{}' has failed validation".format(component_name)
             log.error(
                 message,
-                details={"ValidationErrors": errors, "ValidationWarnings": warnings},
+                details={
+                    "Component": component_name,
+                    "ValidationErrors": errors,
+                    "ValidationWarnings": warnings,
+                },
             )
         elif warnings:
             message = "Component '{}' has one or more validation warnings".format(
@@ -550,11 +602,11 @@ def __validate_definitions(
 
         # Update the component status
         if errors:
-            if enforce_validation():
+            if util.is_enforce_validation():
                 # Validation errors with enforcement
                 update_status(
                     component_prn,
-                    "COMPILE_FAILED",
+                    COMPILE_FAILED,
                     "Component has failed validation",
                     details={"Consumable": definition["Type"]},
                 )
@@ -562,47 +614,44 @@ def __validate_definitions(
                 # Validation errors without enforcement
                 update_status(
                     component_prn,
-                    "COMPILE_IN_PROGRESS",
+                    COMPILE_IN_PROGRESS,
                     "Component has failed validation, but validation is not being enforced",
                 )
         elif warnings:
             # No errors but does have warnings
             update_status(
                 component_prn,
-                "COMPILE_IN_PROGRESS",
+                COMPILE_IN_PROGRESS,
                 "Component validation completed with warnings",
             )
         else:
             # No warnings or errors
             update_status(
-                component_prn, "COMPILE_IN_PROGRESS", "Component validation completed"
+                component_prn, COMPILE_IN_PROGRESS, "Component validation completed"
             )
 
-        log.reset_identity()
-
     # Cancel remaining compilations if validation is enforced and there are any validation errors
-    if enforce_validation() and any_errors:
+    if util.is_enforce_validation() and any_errors:
+
         for component_name in sorted(results):
             definition = definitions[component_name]
+
             result = results[component_name]
             component_prn = "{}:{}".format(build_prn, component_name)
-            log.set_identity(component_prn)
 
             # Only update the status if we wouldn't have previously set status to COMPILE_FAILED
             if not result["ValidationErrors"]:
                 update_status(
                     component_prn,
-                    "COMPILE_FAILED",
+                    COMPILE_FAILED,
                     "Cancelled due to other build errors",
                     details={"Consumable": definition["Type"]},
                 )
 
-            log.reset_identity()
-
     return results
 
 
-def __compile_component_defintiions(
+def __compile_component_definitions(
     build_prn: str, definitions: dict, context: dict, environment: str | None = None
 ) -> dict:
     results: dict = {}
@@ -619,14 +668,14 @@ def __compile_component_defintiions(
             # Successful compilation
             update_status(
                 component_prn,
-                "COMPILE_COMPLETE",
+                COMPILE_COMPLETE,
                 details={"Consumable": definition["Type"]},
             )
         else:
             # Errors during compilation
             update_status(
                 component_prn,
-                "COMPILE_FAILED",
+                COMPILE_FAILED,
                 message=result["Message"],
                 details={"Consumable": definition["Type"]},
             )
@@ -636,77 +685,14 @@ def __compile_component_defintiions(
     return results
 
 
-def __construct_compile_context(
-    task_payload: TaskPayload, facts: dict, variables: dict
+def __upload_object(
+    bucket: Any,
+    bucket_region: str,
+    prefix: str,
+    file_name: str,
+    body: Any,
+    sep: str = "/",
 ) -> dict:
-
-    deployment_details = task_payload.DeploymentDetails
-
-    client = deployment_details.Client
-    scope = deployment_details.Scope
-
-    artefacts_bucket_name = util.get_artefact_bucket_name(client)
-    artefacts_bucket_region = util.get_artefact_bucket_region
-    s3_artefacts_prefix = util.get_artefact_key(deployment_details, None, scope)
-
-    # Generate various context variables
-    s3_artefacts_bucket_url = "https://s3-{}.amazonaws.com/{}".format(
-        artefacts_bucket_region, artefacts_bucket_name
-    )
-
-    s3_files_bucket_url = "https://s3-{}.amazonaws.com/{}".format(
-        artefacts_bucket_region, artefacts_bucket_name
-    )
-
-    # When building context replacement variables, we need to know if we are building for S3 or not
-    for_s3 = task_payload.Package.Mode != V_LOCAL
-
-    # For context rplacmeent variables
-    s3_build_files_prefix = util.get_files_path(
-        deployment_details, None, SCOPE_BUILD, for_s3
-    )
-
-    s3_branch_files_prefix = util.get_files_path(
-        deployment_details, None, SCOPE_BRANCH, for_s3
-    )
-
-    s3_app_files_prefix = util.get_files_path(
-        deployment_details, None, SCOPE_APP, for_s3
-    )
-
-    s3_portfolio_files_prefix = util.get_files_path(
-        deployment_details, None, SCOPE_PORTFOLIO, for_s3
-    )
-
-    s3_shared_files_prefix = "files/shared"
-
-    # Construct the compilation context
-    compile_context = {
-        "vars": variables,
-        "context": {
-            **facts,
-            **deployment_details.model_dump(),
-            # Artefacts
-            "ArtefactsBucketName": artefacts_bucket_name,
-            "ArtefactsBucketRegion": artefacts_bucket_region,
-            "ArtefactsBucketUrl": s3_artefacts_bucket_url,
-            "ArtefactsPrefix": s3_artefacts_prefix,
-            # Files
-            "FilesBucketName": artefacts_bucket_name,
-            "FilesBucketRegion": artefacts_bucket_region,
-            "FilesBucketUrl": s3_files_bucket_url,
-            "BuildFilesPrefix": s3_build_files_prefix,
-            "BranchFilesPrefix": s3_branch_files_prefix,
-            "AppFilesPrefix": s3_app_files_prefix,
-            "PortfolioFilesPrefix": s3_portfolio_files_prefix,
-            "SharedFilesPrefix": s3_shared_files_prefix,
-        },
-    }
-
-    return compile_context
-
-
-def __upload_objects(bucket: Any, bucket_region: str, prefix: str, files: dict) -> dict:
     """
     Save the object to the targed Bucket.
 
@@ -720,38 +706,35 @@ def __upload_objects(bucket: Any, bucket_region: str, prefix: str, files: dict) 
         bucket (Any): S3 Bucket or MagicBucket object
         bucket_region (str): Region for the S3 bucket
         prefix (str): prefix for the object.  Will be a path like files/**, pacakges/**, artefacts/**
-        files (dict): Dictionary of files to upload.
+        file_name (str): filename of the object
+        body (Any): binary object (byte array)
+        sep (str): path separator
 
     Returns:
         dict: _description_
     """
-    objects = {}
-    # Process the package and retrieve the deployspec
-    for file_name, file_contents in files.items():
 
-        key = "{}/{}".format(prefix, file_name)
-        key = key.replace("\\", "/")  # TODO Verify Mike's change here is required.
-        log.debug(
-            "Uploading file to S3",
-            details={
-                "BucketName": bucket.name,
-                "BucketRegion": bucket_region,
-                "Key": key,
-            },
-        )
+    key = "{}{}{}".format(prefix, sep, file_name)
 
-        object = bucket.put_object(
-            Body=file_contents,
-            Key=key,
-            ServerSideEncryption="AES256",
-            ACL="bucket-owner-full-control",
-        )
-
-        objects[file_name] = {
+    log.debug(
+        "Uploading file to storage",
+        details={
             "BucketName": bucket.name,
             "BucketRegion": bucket_region,
             "Key": key,
-            "VersionId": object.version_id,
-        }
+        },
+    )
 
-    return objects
+    object = bucket.put_object(
+        Body=body,
+        Key=key,
+        ServerSideEncryption="AES256",
+        ACL="bucket-owner-full-control",
+    )
+
+    return {
+        "BucketName": bucket.name,
+        "BucketRegion": bucket_region,
+        "Key": key,
+        "VersionId": object.version_id,
+    }
