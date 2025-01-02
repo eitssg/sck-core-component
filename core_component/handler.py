@@ -9,7 +9,6 @@ from typing import Any
 import os
 import io
 import re
-import core_helper.aws as aws
 import jmespath
 import traceback
 import zipfile as zip
@@ -19,11 +18,10 @@ from datetime import datetime
 import core_logging as log
 
 import core_framework as util
-from core_framework.constants import V_LOCAL
 from core_framework.status import COMPILE_COMPLETE, COMPILE_FAILED, COMPILE_IN_PROGRESS
-
+from core_framework.constants import TR_RESPONSE
 from core_framework.models import TaskPayload, PackageDetails
-from core_framework.magic import MagicS3Client
+from core_helper.magic import MagicS3Client
 
 from core_db.dbhelper import register_item, update_status, update_item
 from core_db.facter import get_facts
@@ -34,7 +32,13 @@ from .validator import validate_component
 
 
 def handler(event: dict, context: dict | None) -> dict:
-    """AWS Lambda handler function."""
+    """AWS Lambda handler function.
+
+    Must return with Task Response { "Response": "..." }
+
+    Returns:
+        dict: Task Response { "Response": "..." }
+    """
 
     task_payload = TaskPayload(**event)
 
@@ -45,8 +49,9 @@ def handler(event: dict, context: dict | None) -> dict:
     # Setup logging (global)
     log.setup(task_payload.Identity or "unknown")
 
-    # Execute
-    return execute(task_payload)
+    result = execute(task_payload)
+
+    return {TR_RESPONSE: result}
 
 
 class CompileException(Exception):
@@ -410,12 +415,7 @@ def __download_package(package: PackageDetails) -> dict[str, Any]:
         },
     )
 
-    if package.Mode == V_LOCAL:
-        local = MagicS3Client(Region=bucket_region, AppPath=package.AppPath)
-        bucket = local.Bucket(bucket_name)
-    else:
-        s3 = aws.s3_resource(region=bucket_region)
-        bucket = s3.Bucket(bucket_name)
+    bucket = MagicS3Client.get_bucket(Region=bucket_region, BucketName=bucket_name)
 
     extra_args = {}
     if package.VersionId is not None:
@@ -450,10 +450,9 @@ def __upload_compiled_files(task_payload: TaskPayload, files: dict) -> dict:
     """
 
     deployment_details = task_payload.DeploymentDetails
-    is_s3 = task_payload.Package.Mode != V_LOCAL
 
-    s3_artefacts_prefix = deployment_details.get_artefacts_key(s3=is_s3)
-    s3_build_files_prefix = deployment_details.get_files_key(s3=is_s3)
+    s3_artefacts_prefix = deployment_details.get_artefacts_key()
+    s3_build_files_prefix = deployment_details.get_files_key()
 
     # Split user files and component files (uploaded to different locations)
     user_files = {}
@@ -478,15 +477,10 @@ def __upload_compiled_files(task_payload: TaskPayload, files: dict) -> dict:
     bucket_name = package.BucketName
     bucket_region = package.BucketRegion
 
+    bucket = MagicS3Client.get_bucket(Region=bucket_region, BucketName=bucket_name)
+
     # Get the bucket
-    if not is_s3:
-        local = MagicS3Client(Region=bucket_region, AppPath=package.AppPath)
-        bucket = local.Bucket(bucket_name)
-        sep = os.path.sep
-    else:
-        s3 = aws.s3_resource(bucket_region)
-        bucket = s3.Bucket(bucket_name)
-        sep = "/"
+    sep = "/" if util.is_use_s3() else os.path.sep
 
     result: dict = {}
     # Upload component files to storage

@@ -89,21 +89,21 @@ def run(args):
     if args.mode == "local":
         # In local mode, add another parameter to flag to the lambda that
         # We're in "local mode", and to not bother downloading/uploading to s3.
-        if args.app_path is None:
+        if args.data_path is None:
             # TODO Can argparse handle this kind of conditional requirements?
             raise ValueError("app-path is required for local mode.")
         # Add params to the Package payload for the lambda.
         package["Mode"] = args.mode
         package["CompileMode"] = args.compile_mode
         package["PlatformPath"] = os.path.abspath(
-            os.path.join(args.app_path, "platform")
+            os.path.join(args.data_path, "platform")
         )
-        # Verify that app_path is a valid application location (i.e. developer mistake).developer
+        # Verify that data_path is a valid application location (i.e. developer mistake).developer
         if not os.path.exists(package["PlatformPath"]):
             raise ValueError(
                 "PlatformPath must exist, i.e. app-path must point to an actual app folder."
             )
-        package["OutputPath"] = os.path.join(args.app_path, "_compiled")
+        package["OutputPath"] = os.path.join(args.data_path, "_compiled")
 
     # Emulated payload for local lambda execution.
     event = {
