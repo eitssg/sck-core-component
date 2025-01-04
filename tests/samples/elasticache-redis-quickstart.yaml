@@ -1,0 +1,16 @@
+my-redis:
+  Type: AWS::ElastiCache::Redis
+
+  Configuration:
+    ReplicationGroup:
+      Pipeline::Security:
+        - Allow: TCP:6379
+          Source: my-app
+      Properties:
+        CacheNodeType: cache.t2.micro
+        NumNodeGroups: 2
+        ReplicasPerNodeGroup: 2
+        Port: 6379
+        SnapshotName:
+          Fn::Pipeline::SnapshotId:
+            Name: DemoRedisLatest

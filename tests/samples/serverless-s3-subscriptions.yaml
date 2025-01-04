@@ -1,0 +1,80 @@
+# S3 Bucket component
+my-bucket:
+  Type: AWS::S3::Bucket
+
+  Configuration:
+    Bucket:
+      Pipeline::Security:
+        # Give the 'my-lambda' component permission to read bucket objects
+        - Source: [my-lambda]
+          Allow: [read]
+      Properties:
+        BucketName:
+          Fn::Pipeline::S3BucketName:   # Must be a per-branch bucket
+            Scope: branch
+        NotificationConfiguration:
+          TopicConfigurations:
+            - Event: s3:ObjectCreated:*
+              Filter:
+                S3Key:
+                  Rules:
+                    - Name: prefix
+                      Value: 'logs/'
+                    - Name: suffix
+                      Value: '.log'
+              Topic:
+                Ref: LogsTopic
+            - Event: s3:ObjectCreated:*
+              Filter:
+                S3Key:
+                  Rules:
+                    - Name: prefix
+                      Value: 'data/'
+              Topic:
+                Ref: DataTopic
+
+    LogsTopic:
+      Properties: {}    # No properties
+
+    DataTopic:
+      Properties: {}    # No properties
+
+# Lambda component
+my-lambda:
+  Type: AWS::Serverless
+  DependsOn:
+    - my-bucket   # Bucket must exist before we can subscribe
+
+  Configuration:
+    Function:
+      Properties:
+        Code:
+          S3Key:
+            Fn::Pipeline::FileS3Key:
+              Path: my-lambda.zip
+        Handler: main.handler
+        MemorySize: 128
+        Runtime: python3.6
+        Timeout: 10
+
+    LogsTopicSubscription:
+      Properties:
+        Endpoint:
+          Fn::Pipeline::LambdaArn:
+            Scope: build      # Topic messages will invoke the Lambda build-x alias
+        TopicArn:
+          # Retrieve ARN of LogsTopic from my-bucket component
+          Fn::Pipeline::GetOutput:
+            Component: my-bucket
+            OutputName: LogsTopicArn
+
+    DataTopicSubscription:
+      Properties:
+        Endpoint:
+          Fn::Pipeline::LambdaArn:
+            Scope: release    # Topic messages will invoke the Lambda release alias
+        TopicArn:
+          # Retrieve ARN of DataTopic from my-bucket component
+          Fn::Pipeline::GetOutput:
+            Component: my-bucket
+            OutputName: DataTopicArn

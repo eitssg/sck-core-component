@@ -13,7 +13,7 @@ DEFINITION_FILE_PATTERN = r"components/[^/\\]+\.yaml$"
 VARS_FILE_PATTERN = r"vars/[^/\\]+\.yaml$"
 
 
-def __render_component_defintitions(
+def render_component_defintitions(
     files: dict[str, Any], context: dict[str, Any]
 ) -> dict[str, Any]:
     """
@@ -136,9 +136,7 @@ def __select_branch_variables(
     return result_variables
 
 
-def load_user_variables(
-    files: dict[str, Any], context: dict[str, Any]
-) -> dict[str, Any]:
+def load_user_variables(facts: dict[str, Any], files: dict[str, Any]) -> dict[str, Any]:
     """
     Load apps ``platform/vars/*.yaml``,
 
@@ -158,11 +156,24 @@ def load_user_variables(
 
     Once all VARS have bee "MERGED", the vars for your specific branch (matched) will be selected as a result.
 
-    """
-    log.info("Loading user variables")
+    Args:
+        facts (dict): The facts about the deployment containing the "Branch" code for the vars.
+        files (dict): The files to load the variables from.
 
+    Returns:
+        dict: The user variables loaded from the vars/* folder.
+
+    """
     # Load variables files
     variables: dict = {}
+
+    branch = facts.get("Branch")
+    if not branch:
+        log.warning("No branch information found in facts")
+        return variables
+
+    log.info("Loading user variables for {} branch", branch)
+
     for filename in files:
 
         # Skip non-vars files
@@ -172,10 +183,8 @@ def load_user_variables(
         log.debug("Processing variables file '{}'".format(filename))
         stream = io.StringIO(files[filename])
         stream.name = filename
-        file_variables = YAML(typ="rt").load(stream)
+        file_variables = util.read_yaml(stream)
         util.deep_merge_in_place(variables, file_variables, merge_lists=True)
-
-    branch = context["context"]["Branch"]
 
     # Load variables for this branch
     branch_variables = __select_branch_variables(branch, variables)

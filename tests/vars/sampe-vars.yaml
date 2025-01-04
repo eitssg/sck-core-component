@@ -1,0 +1,26 @@
+defaults:
+    name: "default"
+    name2: "default2"
+
+master:
+    name: "prod"
+
+main:
+    name: "prod"
+
+dev:
+    match: "^dev-(.*)$"
+    name: "dev"
+
+dev-*:
+    name2: "dev_alt"
+
+stage/*:
+    name: "stage"
+
+d*:
+    simple: d
+
+my*:
+    st-type: "pipeline"
+    disposition: "mine"

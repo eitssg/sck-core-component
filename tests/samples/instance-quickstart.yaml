@@ -1,0 +1,16 @@
+my-instance:
+  Type: AWS::Instance
+
+  Configuration:
+    Instance:
+      Pipeline::Security:
+        - Allow: TCP:22
+          Source: bastion
+      Properties:
+        ImageId:
+          Fn::Pipeline::ImageId:
+            Name: amazon-linux
+        InstanceType: t3.small
+        SubnetId:
+          Fn::Pipeline::SubnetId:
+            NetworkZone: private

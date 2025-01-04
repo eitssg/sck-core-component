@@ -1,0 +1,12 @@
+my-s3-storage:
+  Type: AWS::S3::Storage
+  Persist: true
+
+  Configuration:
+    Storage:
+      Pipeline::Security:
+        - Allow: [ list, read, write ]
+          Source: lambda
+      Properties:
+        Prefix: logs
+        Scope: branch

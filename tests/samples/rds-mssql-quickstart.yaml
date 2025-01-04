@@ -1,0 +1,15 @@
+my-mssql-db:
+  Type: AWS::RDS::MSSQL
+  Persist: true
+
+  Configuration:
+    DbInstance:
+      Pipeline::Security:
+        - Allow: TCP:1433
+          Source: my-app
+      Properties:
+        AllocatedStorage: 20
+        DBInstanceClass: db.t3.medium
+        Engine: sqlserver-ex
+        MasterUsername: root
+        MasterUserPassword: QcmQ9j75xkPSVgF7

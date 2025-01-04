@@ -1,0 +1,49 @@
+---
+db:
+  Type: AWS::RDS::Aurora::PostgreSQL
+  Persist: true
+  Configuration:
+
+    DbCluster:
+      Pipeline::Security:
+        - Allow: TCP:5432
+          Source: app
+        - Allow: TCP:5432
+          Source: bastion
+      Properties:
+        DatabaseName: {{vars.DatabaseName}}
+        EngineMode: provisioned
+        MasterUsername: {{vars.MasterUsername}}
+        PreferredBackupWindow: {{vars.PreferredBackupWindow}}
+        PreferredMaintenanceWindow: {{vars.PreferredMaintenanceWindow}}
+
+    DbClusterParameterGroup:
+      Properties:
+        Description: "{{context.Portfolio}}-{{context.App}}-{{context.BranchShortName}}-{{context.Build}} cluster parameter group"
+        Family: aurora-postgresql10
+        Parameters:
+          rds.force_ssl: 1
+
+    WriterDbInstance:
+      Properties:
+        AllowMajorVersionUpgrade: false
+        AutoMinorVersionUpgrade: true
+        DBInstanceClass: {{vars.DBInstanceClass}}
+        Engine: aurora-postgresql
+
+    {% for i in [1, 2] %}
+    Reader{{i}}DbInstance:
+      DependsOn:
+        - WriterDbInstance
+      Properties:
+        AllowMajorVersionUpgrade: false
+        AutoMinorVersionUpgrade: true
+        DBInstanceClass: {{vars.DBInstanceClass}}
+        Engine: aurora-postgresql
+
+    {% endfor %}
+
+    DbInstanceParameterGroup:
+      Properties:
+        Description: "{{context.Portfolio}}-{{context.App}}-{{context.BranchShortName}}-{{context.Build}} instance parameter group"
+        Family: aurora-postgresql10

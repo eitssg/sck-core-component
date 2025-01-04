@@ -19,15 +19,20 @@ import core_logging as log
 
 import core_framework as util
 from core_framework.status import COMPILE_COMPLETE, COMPILE_FAILED, COMPILE_IN_PROGRESS
-from core_framework.constants import TR_RESPONSE
+from core_framework.constants import TR_RESPONSE, CTX_CONTEXT
 from core_framework.models import TaskPayload, PackageDetails
 from core_helper.magic import MagicS3Client
 
 from core_db.dbhelper import register_item, update_status, update_item
 from core_db.facter import get_facts
 
-from .preprocessor import load_user_variables, __render_component_defintitions
-from .compiler import combine_result_files, compile_app_files, render_component
+from .preprocessor import load_user_variables, render_component_defintitions
+from .compiler import (
+    combine_result_files,
+    compile_app_files,
+    render_component,
+    assemble_context
+)
 from .validator import validate_component
 
 
@@ -47,7 +52,7 @@ def handler(event: dict, context: dict | None) -> dict:
     # os.environ["PLATFORM_PATH"] = package.get("PlatformPath", "")
 
     # Setup logging (global)
-    log.setup(task_payload.Identity or "unknown")
+    log.setup(task_payload.Identity)
 
     result = execute(task_payload)
 
@@ -80,9 +85,6 @@ def execute(task_payload: TaskPayload) -> dict:
 
         deployment_details = task_payload.DeploymentDetails
 
-        branch_prn = deployment_details.get_branch_prn()
-        build_prn = deployment_details.get_build_prn()
-
         # Register branch and build with the API
         if not deployment_details.Branch or not deployment_details.Build:
             return {
@@ -90,8 +92,11 @@ def execute(task_payload: TaskPayload) -> dict:
                 "Message": "Branch and Build details are required",
             }
 
+        branch_prn = deployment_details.get_branch_prn()
+        build_prn = deployment_details.get_build_prn()
+
         register_item(branch_prn, deployment_details.Branch)
-        register_item(build_prn, deployment_details.Build, status="COMPILE_IN_PROGRESS")
+        register_item(build_prn, deployment_details.Build, status=COMPILE_IN_PROGRESS)
 
         facts = get_facts(deployment_details)
 
@@ -108,16 +113,14 @@ def execute(task_payload: TaskPayload) -> dict:
         context = __create_context(task_payload, facts, files)
 
         # Will return with component definitions fully rendered
-        definitions = __render_component_defintitions(files, context)
+        # From the preprocessor module
+        definitions = render_component_defintitions(files, context)
 
         # Register the components into the Database that will are defined in this deployment
         __register_components(task_payload, definitions, context)
 
         # Compile the components.  Raises an excepton on any failure.
-        result = __compile_components(task_payload, facts, definitions, context)
-
-        # All is ok, no exception thrown. So, update the build status accordingly.
-        update_status(build_prn, COMPILE_COMPLETE)
+        result = __compile_components(task_payload, definitions, context)
 
         return result
 
@@ -155,6 +158,7 @@ def __create_context(
     task_payload: TaskPayload, facts: dict[str, Any], files: dict[str, Any]
 ) -> dict:
     """
+    TODO - Move this!  This function is in the wrong module.  Or eliminate it altogether.  It is not needed.
 
     The idea is to read from the package.zip file the "platform/vars/*.yaml" files
     and add them to the jinja context.  It will build a context with the following
@@ -179,19 +183,18 @@ def __create_context(
 
         log.debug("Processing component definition files")
 
-        deployment_details = task_payload.DeploymentDetails
-        build_prn = deployment_details.get_build_prn()
-
-        preprocessor_context = {"context": facts}
-
         # We will preporocess variable files with the current context
-        variables = load_user_variables(files, preprocessor_context)
+        # From the "preprocessor module"
+        variables = load_user_variables(facts, files)
 
-        preprocessor_context["vars"] = variables
+        context = assemble_context(facts, variables)
 
-        return preprocessor_context
+        return context
 
     except Exception as e:
+
+        build_prn = task_payload.DeploymentDetails.get_build_prn()
+
         update_status(
             build_prn, COMPILE_FAILED, "Error processing component definition files"
         )
@@ -209,9 +212,8 @@ def __create_context(
         raise Exception(exception_message)
 
 
-def __register_components(
-    task_payload: TaskPayload, definitions: dict, compile_context: dict
-):
+def __register_components(task_payload: TaskPayload, definitions: dict, context: dict):
+
     log.info("Registering components with the Database")
     log.debug("Registering components with the Database", details=definitions)
 
@@ -219,7 +221,7 @@ def __register_components(
     build_prn = deployment_details.get_build_prn()
 
     # Dump context as metadata in DynamoDB
-    update_item(prn=build_prn, context=json.dumps(compile_context))
+    update_item(prn=build_prn, context=json.dumps(context))
 
     # Register components with the API
     for component_name, definition in definitions.items():
@@ -228,7 +230,7 @@ def __register_components(
 
         component_prn = "{}:{}".format(build_prn, component_name)
         image_alias, image_id = __get_component_image(
-            definition, compile_context["context"]["ImageAliases"]
+            definition, context[CTX_CONTEXT]["ImageAliases"]
         )
 
         log.debug("Registering component with the database:", details=definition)
@@ -250,7 +252,7 @@ def __register_components(
 
 
 def __compile_components(
-    task_payload: TaskPayload, facts: dict, definitions: dict, compile_context: dict
+    task_payload: TaskPayload, definitions: dict, context: dict
 ) -> dict:
 
     log.info("Compiling components")
@@ -259,14 +261,14 @@ def __compile_components(
     build_prn = deployment_details.get_build_prn()
 
     # Validate the components
-    validation_results = __validate_definitions(build_prn, definitions, compile_context)
+    validation_results = __validate_definitions(build_prn, definitions, context)
 
     # Collect together all the validation errors and warnings
     validation_errors = []
     validation_warnings = []
     for result in validation_results.values():
-        validation_errors += result["ValidationErrors"]
-        validation_warnings += result["ValidationWarnings"]
+        validation_errors.extend(result["ValidationErrors"])
+        validation_warnings.extend(result["ValidationWarnings"])
 
     # Fail compilation if validation is enforced and there are any validation errors
     if util.is_enforce_validation() and validation_errors:
@@ -287,8 +289,7 @@ def __compile_components(
     compile_results = __compile_component_definitions(
         build_prn=build_prn,
         definitions=definitions,
-        context=compile_context,
-        environment=facts.get("Environment"),
+        context=context,
     )
     failed_components = {
         k: v for k, v in compile_results.items() if v["Status"] == "error"
@@ -301,12 +302,15 @@ def __compile_components(
 
     # Handle compliation failures
     if failed_components:
+
         log.error("One or more components have failed compilation")
+
         update_status(
             build_prn,
             COMPILE_FAILED,
             "One or more components have failed compilation",
         )
+
         return __return(
             "error",
             "One or more components have failed compilation",
@@ -331,7 +335,9 @@ def __compile_components(
         log.error(
             "Error while uploading compiled components", details={"Error": str(e)}
         )
+
         update_status(build_prn, COMPILE_FAILED)
+
         return __return(
             "error",
             f"Error while uploading compiled components: {e}",
@@ -646,8 +652,12 @@ def __validate_definitions(build_prn: str, definitions: dict, context: dict) -> 
 
 
 def __compile_component_definitions(
-    build_prn: str, definitions: dict, context: dict, environment: str | None = None
+    build_prn: str,
+    definitions: dict,
+    context: dict,
 ) -> dict:
+    """Pass each component throught the renderer for var replacement with the context."""
+
     results: dict = {}
 
     results["_application"] = compile_app_files(definitions, context)

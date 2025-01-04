@@ -1,0 +1,18 @@
+my-payperrequest-table:
+  Type: AWS::DynamoDB
+  Persist: true
+  Configuration:
+    Table:
+      Pipeline::Security:
+        - Allow: [ read, write, delete ]
+          Source: lambda
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        BillingMode: PAY_PER_REQUEST
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES

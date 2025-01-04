@@ -1,0 +1,49 @@
+---
+dbmysql:
+  Type: AWS::RDS::Aurora::MySQL
+  Persist: true
+  Configuration:
+
+    DbCluster:
+      Pipeline::Security:
+        - Allow: TCP:3306
+          Source: app
+        - Allow: TCP:3306
+          Source: bastion
+      Properties:
+        DatabaseName: {{vars.DatabaseName}}
+        Engine: {{vars.Engine}}
+        EngineMode: {{vars.EngineMode}}
+        MasterUsername: {{vars.MasterUsername}}
+        PreferredBackupWindow: {{vars.PreferredBackupWindow}}
+        PreferredMaintenanceWindow: {{vars.PreferredMaintenanceWindow}}
+
+    DbClusterParameterGroup:
+      Properties:
+        Description: "{{context.Portfolio}}-{{context.App}}-{{context.BranchShortName}}-{{context.Build}} cluster parameter group"
+        Family: {{vars.Family}}
+        Parameters:
+          time_zone: {{vars.TimeZone}}
+
+    WriterDbInstance:
+      Properties:
+        AllowMajorVersionUpgrade: false
+        AutoMinorVersionUpgrade: true
+        DBInstanceClass: {{vars.DBInstanceClass}}
+        Engine: {{vars.Engine}}
+
+    {% for i in [1, 2] %}
+    Reader{{i}}DbInstance:
+      DependsOn:
+        - WriterDbInstance
+      Properties:
+        AllowMajorVersionUpgrade: false
+        AutoMinorVersionUpgrade: true
+        DBInstanceClass: {{vars.DBInstanceClass}}
+        Engine: {{vars.Engine}}
+    {% endfor %}
+
+    DbInstanceParameterGroup:
+      Properties:
+        Description: "{{context.Portfolio}}-{{context.App}}-{{context.BranchShortName}}-{{context.Build}} instance parameter group"
+        Family: {{vars.Family}}

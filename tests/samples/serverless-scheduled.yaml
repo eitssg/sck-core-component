@@ -1,0 +1,31 @@
+my-scheduled-lambda:
+  Type: AWS::Serverless
+  Configuration:
+    Function:
+      Properties:
+        Code:
+          S3Key:
+            Fn::Pipeline::FileS3Key:
+              Path: my-lambda.zip
+        Handler: main.handler
+        MemorySize: 128
+        Runtime: python3.6
+        Timeout: 3
+
+    BuildEventRule:
+      Properties:
+        ScheduleExpression: "cron(0/5 * * * ? *)"   # Every 5 minutes
+        Targets:
+          - Arn:
+              Fn::Pipeline::LambdaArn:
+                Scope: build                        # Event will invoke Lambda build-x alias
+            Input: '{"Scope": "build"}'             # Custom input for the Lambda
+
+    ReleaseEventRule:
+      Properties:
+        ScheduleExpression: "cron(1/5 * * * ? *)"   # Every 5 minutes, offset by 1 minute
+        Targets:
+          - Arn:
+              Fn::Pipeline::LambdaArn:
+                Scope: release                      # Event will invoke Lambda release alias
+            Input: '{"Scope": "release"}'           # Custom input for the Lambda
