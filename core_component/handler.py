@@ -391,7 +391,7 @@ def __return(
     }
 
 
-def __download_package(package: PackageDetails) -> dict[str, Any]:
+def __download_package(package: PackageDetails) -> dict[str, str]:
     """
     Download the package.zip from S3 or local source and extract the files.
     and put into a dictionary indexed by the filename.
@@ -402,67 +402,6 @@ def __download_package(package: PackageDetails) -> dict[str, Any]:
     Returns:
         dict[str, Any]: List of all files read from the package.zip
     """
-
-    bucket_name = package.BucketName
-    bucket_region = package.BucketRegion
-    version_id = package.VersionId
-
-    if package.Key is None:
-        raise ValueError("Package key is required")
-
-    # Download package from S3
-    log.info("Processing deployment package")
-    log.debug(
-        "Downloading object",
-        details={
-            "BucketName": bucket_name,
-            "Key": package.Key,
-            "VersionId": version_id,
-        },
-    )
-
-    bucket = MagicS3Client.get_bucket(Region=bucket_region, BucketName=bucket_name)
-
-    extra_args = {}
-    if package.VersionId is not None:
-        extra_args["VersionId"] = version_id
-    fileobj = io.BytesIO()
-
-    # Download the package from the S3 Bucket or MagicBucket
-    bucket.download_fileobj(Key=package.Key, Fileobj=fileobj, ExtraArgs=extra_args)
-
-    # The key should have been "package.zip"
-    zipfile = zip.ZipFile(fileobj, "r")
-    namelist = zipfile.namelist()
-
-    files = {}
-    for name in namelist:
-        file_data = zipfile.read(name)
-        files[name] = file_data.decode("utf-8")
-
-    return files
-
-
-def __upload_compiled_files(task_payload: TaskPayload, files: dict) -> dict:
-    """
-    Upload files to storage
-
-    Args:
-        task_payload (TaskPayload): the task_payload object
-        files (dict): files to upload
-
-    Returns:
-        dict: returns a list of files with their upload results
-    """
-
-    deployment_details = task_payload.DeploymentDetails
-
-    s3_artefacts_prefix = deployment_details.get_artefacts_key()
-    s3_build_files_prefix = deployment_details.get_files_key()
-
-    # Split user files and component files (uploaded to different locations)
-    user_files = {}
-    component_files = {}
 
     # The structure of the project platform folder is
     #
@@ -477,38 +416,94 @@ def __upload_compiled_files(task_payload: TaskPayload, files: dict) -> dict:
     # │   ├── branch-nonprod.yaml
     # │   ├── branch-dev.yaml
     #
-    # The package.zip is an archive containing all platform folder contents compnents, files and vars folders.
+    # The package.zip is an archive containing all platform folder contents compnents and vars folders.
+    #
+    # The package.zip can ONLY CONTAIN TEXT FILES encoded in UTF8.  Do NOT put binary files in the
+    # package.zip.  They will be corrupted when they are read from the zip file.
 
-    package = task_payload.Package
     bucket_name = package.BucketName
     bucket_region = package.BucketRegion
+    version_id = package.VersionId
+
+    if package.Key is None:
+        raise ValueError("Package key is required")
+
+    # The key should have been "package.zip"
+
+    # Download package from S3
+    log.info("Processing deployment pipeline package")
+    log.debug(
+        "Downloading object",
+        details={
+            "BucketName": bucket_name,
+            "Key": package.Key,
+            "VersionId": version_id,
+        },
+    )
 
     bucket = MagicS3Client.get_bucket(Region=bucket_region, BucketName=bucket_name)
 
-    # Get the bucket
-    sep = "/" if util.is_use_s3() else os.path.sep
+    extra_args = {}
+    if package.VersionId is not None:
+        extra_args["VersionId"] = version_id
 
+    # Download the package from the S3 Bucket or MagicBucket
+    fileobj = io.BytesIO()
+    bucket.download_fileobj(Key=package.Key, Fileobj=fileobj, ExtraArgs=extra_args)
+    zipfile = zip.ZipFile(fileobj, "r")
+
+    namelist = zipfile.namelist()
+
+    files: dict[str, str] = {}
+    for name in namelist:
+        file_data = zipfile.read(name)
+        files[name] = file_data.decode("utf-8")
+
+    return files
+
+
+def __upload_compiled_files(task_payload: TaskPayload, files: dict[str, str]) -> dict:
+    """
+    Upload files to storage
+
+    Args:
+        task_payload (TaskPayload): the task_payload object
+        files (dict): files to upload
+
+    Returns:
+        dict: returns a list of files with their upload results
+    """
+
+    deployment_details = task_payload.DeploymentDetails
+
+    s3_artefacts_prefix = deployment_details.get_artefacts_key()
+    s3_files_prefix = deployment_details.get_files_key()
+
+    bucket_name = task_payload.Package.BucketName
+    bucket_region = task_payload.Package.BucketRegion
+
+    bucket = MagicS3Client.get_bucket(Region=bucket_region, BucketName=bucket_name)
+
+    # collect results of the upload for status
     result: dict = {}
+
     # Upload component files to storage
     for file_name, body in files.items():
-        if file_name.startswith("files/"):
-            user_files[file_name] = body
-            result = __upload_object(
-                bucket, bucket_region, s3_build_files_prefix, file_name, body, sep
-            )
 
-        elif file_name.startswith("components/") or file_name.startswith("vars/"):
-            component_files[file_name] = body
+        if "/userfiles/" in file_name:
             result = __upload_object(
-                bucket, bucket_region, s3_artefacts_prefix, file_name, body, sep
+                bucket, bucket_region, s3_files_prefix, file_name, body
             )
 
         else:
-            log.warn("Unknown file type", details={"FileName": file_name})
-            continue
+            result = __upload_object(
+                bucket, bucket_region, s3_artefacts_prefix, file_name, body
+            )
 
+        # save the result of the upload
         result[file_name] = result
 
+    # Return the results of the upload to the caller
     return result
 
 
@@ -695,7 +690,6 @@ def __upload_object(
     prefix: str,
     file_name: str,
     body: Any,
-    sep: str = "/",
 ) -> dict:
     """
     Save the object to the targed Bucket.
@@ -717,6 +711,7 @@ def __upload_object(
     Returns:
         dict: _description_
     """
+    sep = "/" if util.is_use_s3() else os.path.sep
 
     key = "{}{}{}".format(prefix, sep, file_name)
 

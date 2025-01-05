@@ -3,7 +3,7 @@ import os
 import traceback
 
 import core_framework as util
-from core_framework.constants import CTX_CONTEXT, CTX_VARS
+from core_framework.constants import CTX_CONTEXT, CTX_VARS, CTX_APP
 
 import core_logging as log
 
@@ -126,7 +126,7 @@ def render_component(component_name: str, definitions: dict, context: dict) -> d
                     "Environment": facts["Environment"],
                     "Account": facts["AwsAccountId"],
                 },
-                "app": definitions,
+                CTX_APP: definitions,
             },
         )
 

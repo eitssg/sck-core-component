@@ -34,6 +34,7 @@ def render_component_defintitions(
 
     definitions: dict = {}
     for filename in files:
+
         # Skip non-definition files
         if not re.match(DEFINITION_FILE_PATTERN, filename):
             continue
@@ -146,13 +147,13 @@ def load_user_variables(facts: dict[str, Any], files: dict[str, Any]) -> dict[st
 
     CHANGE IN FUNCTIONALITY.
 
-    The old method used to read each file in alphabetical order and sectins would overwrite a previously read
+    The old method used to read each file in alphabetical order and sections would overwrite a previously read
     section.
 
     NEW METHOD
 
     The new method will read all variables files and MERGE them.  Any sections that thave the same names
-    will be MERGED.  Indeed, if a later file updates a variable in a section, the later file will win.
+    will be MERGED.  Indeed, if a later file/section updates a variable in a section, the later file will win.
 
     Once all VARS have bee "MERGED", the vars for your specific branch (matched) will be selected as a result.
 
