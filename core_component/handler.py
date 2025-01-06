@@ -713,7 +713,11 @@ def __upload_object(
     """
     sep = "/" if util.is_use_s3() else os.path.sep
 
-    key = "{}{}{}".format(prefix, sep, file_name)
+    # The filename is coming from the same object used to pass to jinja.  Since
+    # we had to make filenames use "/" for path seperators for Jinja, we will need
+    # to replace them with the correct path seperator for the envinronment.
+
+    key = "{}{}{}".format(prefix, sep, file_name.replace("/", sep))
 
     log.debug(
         "Uploading file to storage",
