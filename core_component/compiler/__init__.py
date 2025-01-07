@@ -2,7 +2,7 @@ from .compiler import (
     compile_app_files,
     render_component,
     combine_result_files,
-    assemble_context
+    assemble_context,
 )
 
 __all__ = [

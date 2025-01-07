@@ -204,9 +204,7 @@ def get_zone_data(client_data: ClientFacts, arguments: dict) -> ZoneFacts:
                 SecurityAliases={
                     "internet": [
                         SecurityAliasFacts(
-                            Type="cidr",
-                            Value="0.0.0.0/0",
-                            Description="Internet CIDR"
+                            Type="cidr", Value="0.0.0.0/0", Description="Internet CIDR"
                         )
                     ],
                     "intranet": [
@@ -218,7 +216,7 @@ def get_zone_data(client_data: ClientFacts, arguments: dict) -> ZoneFacts:
                         SecurityAliasFacts(
                             Type="cidr", Value="10.0.0.0/8", Description="Global CIDR 2"
                         ),
-                    ]
+                    ],
                 },
                 SecurityGroupAliases={
                     "alias1": "aws_sg_ingress",

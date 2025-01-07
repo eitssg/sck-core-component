@@ -31,7 +31,7 @@ from .compiler import (
     combine_result_files,
     compile_app_files,
     render_component,
-    assemble_context
+    assemble_context,
 )
 from .validator import validate_component
 

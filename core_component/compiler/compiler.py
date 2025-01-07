@@ -101,11 +101,13 @@ def render_component(component_name: str, definitions: dict, context: dict) -> d
     facts = context[CTX_CONTEXT]
 
     try:
-        component_url_prefix = sep.join([
-            facts["ArtefactsBucketUrl"],
-            facts["ArtefactsPrefix"],
-            component_name,
-        ])
+        component_url_prefix = sep.join(
+            [
+                facts["ArtefactsBucketUrl"],
+                facts["ArtefactsPrefix"],
+                component_name,
+            ]
+        )
         component_key_prefix = sep.join([facts["ArtefactsPrefix"], component_name])
 
         # Construct the render context
