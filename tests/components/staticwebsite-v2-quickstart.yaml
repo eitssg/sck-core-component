@@ -1,0 +1,61 @@
+my-staticwebsite:
+  Type: AWS::StaticWebsite
+
+  Configuration:
+    Distribution:
+      Pipeline::Security:
+        - Source: client-public-edge
+          Allow: ['TCP:443', 'TCP:80']
+      Properties:
+        DistributionConfig:
+          Aliases:
+            - example.domain.com.   # Your domain name here
+          CacheBehaviors:
+            - DefaultTTL: 30
+              Compress: true
+              ForwardedValues:
+                QueryString: false
+              PathPattern: "index.html"
+              TargetOriginId: bucket
+              ViewerProtocolPolicy: redirect-to-https
+            - DefaultTTL: 30
+              Compress: true
+              ForwardedValues:
+                QueryString: false
+              PathPattern: "dynamic/*"
+              TargetOriginId: bucket
+              ViewerProtocolPolicy: redirect-to-https
+          DefaultCacheBehavior:
+            DefaultTTL: 3600        # 1 hour
+            Compress: true
+            ForwardedValues:
+              QueryString: false
+            TargetOriginId: bucket
+            ViewerProtocolPolicy: redirect-to-https
+          DefaultCacheBehaviorTrustedKeyGroups:
+            - Name: keygroup
+              Comment: "comments"
+              Items:
+                - Name: key1
+                  Comment: "key 1"
+                  CallerReference: "public-key-group"
+                  EncodedKey: |
+                    -----BEGIN PUBLIC KEY-----
+                    MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkgcmmUd61GcoVLh4mKo7
+                    isZUKopguFnovZZwGS1Wg+qaNDiz15HLYkYxF8Zb7YdS/1XAq14gewhdzZ4JD1z+
+                    d3PvPStLRqsnfItlgNIzpBo6kFf1C+7KyadxD30yEWUKIzEGt2EQkXR9I0UAZ+yN
+                    UmlIUZgeHf6IbX/dAv60ybZqJQPEAoqqUGaMpGPNLXXkokcy5MCru2+S5+gMV5fb
+                    epJB6zni7RMoXKBNJLPXAwFNM+/TcXCY3hMJOC93zLSokpzqYCpLlikQTXsuXtcQ
+                    bj/NAEx3cYpD6cQL8at1CdKVYA3PyCHbIj942loqac5nJKcEfYixjaqApRa/+smo
+                    FQIDAQAB
+                    -----END PUBLIC KEY-----
+          ViewerCertificate:
+            # Certificate must be in us-east-1 (N. Virginia)
+            AcmCertificateArn: arn:aws:acm:us-east-1:012345678912:certificate/0123456-abcdef
+          WafEnable: {{ vars.WafEnable }}
+          LogBucketAclEnable: true
+          LocalHostName:
+            - name1.domain.com
+          AdditionalBucketsEnable: True
+          AdditionalBuckets:
+            - publicdata

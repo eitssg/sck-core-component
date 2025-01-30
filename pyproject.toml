@@ -11,7 +11,7 @@ readme = "README.md"
 authors = [ "James Barwick <jbarwick@me.com>",]
 maintainers = [ "James Barwick <jbarwick@me.com>",]
 keywords = ["sck", "core", "aws", "cloud", "automation"]
-include = ["core_component/_version.py"]
+include = ["core_component/version.py"]
 
 [[tool.poetry.packages]]
 include = "core_component"
@@ -41,9 +41,8 @@ bump = true
 ignore-untracked = true
 style = "semver"
 
-[tool.poetry-dynamic-versioning.files."core_component/_version.py"]
-persistent-substitution = true
-initial-content = "  \"\"\"\n  This is the version informatooin for this template\n  \"\"\"\n  __version__ = \"0.0.0\"\n  __version_tuple__ = (0, 0, 0)\n"
+[tool.poetry-dynamic-versioning.substitution]
+files = ["core_component/__init__.py"]
 
 [tool.poetry.group.dev.dependencies]
 poetry = ">=1.8.5"
@@ -58,3 +57,4 @@ boto3-stubs = ">=1.35.93"
 types-pyyaml = "^6.0.12.20240917"
 types-jmespath = "^1.0.2.20240106"
 types-tabulate = "^0.9.0.20240106"
+
