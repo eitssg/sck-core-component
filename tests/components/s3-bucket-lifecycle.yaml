@@ -1,0 +1,15 @@
+my-bucket:
+  Type: AWS::S3::Bucket
+  Persist: true
+
+  Configuration:
+    Bucket:
+      Pipeline::Security:
+        - Source: my-app
+          Allow: [list, read, write, delete]
+      Properties:
+        LifecycleConfiguration:
+          Rules:
+            - ExpirationInDays: 1
+              NoncurrentVersionExpirationInDays: 1
+              Prefix: logs/

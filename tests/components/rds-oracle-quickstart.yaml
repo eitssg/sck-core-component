@@ -1,0 +1,15 @@
+my-oracle-db:
+  Type: AWS::RDS::Oracle
+  Persist: true
+
+  Configuration:
+    DbInstance:
+      Pipeline::Security:
+        - Allow: TCP:1521
+          Source: my-app
+      Properties:
+        AllocatedStorage: 20
+        DBInstanceClass: db.t3.medium
+        MasterUsername: root
+        EngineName: oracle-se1
+        LicenseModel: license-included

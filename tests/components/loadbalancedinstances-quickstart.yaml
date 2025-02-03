@@ -1,0 +1,84 @@
+my-app:
+  Type: AWS::LoadBalancedInstances
+
+  Configuration:
+    LoadBalancer:
+      Pipeline::Security:
+        - Allow: TCP:80
+          Source: intranet
+      Properties:
+        Scheme: internal
+        HealthCheck:
+          Target: HTTP:80/
+        Listeners:
+          - InstancePort: 80
+            LoadBalancerPort: 80
+            Protocol: HTTP
+
+    FirstInstance:
+      Pipeline::Security:
+        - Allow: TCP:22
+          Source: bastion
+      Metadata:
+        AWS::CloudFormation::Init:
+          config:
+            packages:
+              yum:
+                httpd: []
+                php: []
+                php-cli: []
+            sources:
+              /var/www/html:
+                Fn::Pipeline::FileUrl:
+                  Path: web.tar.gz
+            commands:
+              01-change-ownership:
+                command: 'chown -R apache:apache /var/www/html'
+            services:
+              sysvinit:
+                httpd:
+                  enabled: true
+                  ensureRunning: true
+      Properties:
+        ImageId:
+          Fn::Pipeline::ImageId:
+            Name: amazon-linux
+        InstanceType: t3.small
+        SubnetId:
+          Fn::Pipeline::SubnetId:
+            NetworkZone: private
+            AzIndex: 0
+
+    SecondInstance:
+      Pipeline::Security:
+        - Allow: TCP:22
+          Source: bastion
+      Metadata:
+        AWS::CloudFormation::Init:
+          config:
+            packages:
+              yum:
+                httpd: []
+                php: []
+                php-cli: []
+            sources:
+              /var/www/html:
+                Fn::Pipeline::FileUrl:
+                  Path: web.tar.gz
+            commands:
+              01-change-ownership:
+                command: 'chown -R apache:apache /var/www/html'
+            services:
+              sysvinit:
+                httpd:
+                  enabled: true
+                  ensureRunning: true
+      Properties:
+        ImageId:
+          Fn::Pipeline::ImageId:
+            Name: amazon-linux
+        InstanceType: t3.small
+        SubnetId:
+          Fn::Pipeline::SubnetId:
+            NetworkZone: private
+            AzIndex: 1

@@ -1,0 +1,29 @@
+my-instance:
+  Type: AWS::Instance
+  DependsOn:
+    - my-database
+
+  Configuration:
+    Instance:
+      Pipeline::Security:
+        - Allow: TCP:22
+          Source: bastion
+      Metadata:
+        AWS::CloudFormation::Init:
+          config:
+            packages:
+              yum:
+                python36: []
+            files:
+              /opt/message.json:
+                source:
+                  Fn::Pipeline::FileUrl:
+                    Path: message.json
+      Properties:
+        ImageId:
+          Fn::Pipeline::ImageId:
+            Name: amazon-linux
+        InstanceType: t3.small
+        SubnetId:
+          Fn::Pipeline::SubnetId:
+            NetworkZone: private

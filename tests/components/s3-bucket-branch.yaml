@@ -1,0 +1,12 @@
+my-bucket:
+  Type: AWS::S3::Bucket
+
+  Configuration:
+    Bucket:
+      Pipeline::Security:
+        - Source: my-app
+          Allow: [ list, read ]
+      Properties:
+        BucketName:
+          Fn::Pipeline::S3BucketName:
+            Scope: branch

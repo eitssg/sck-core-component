@@ -1,0 +1,37 @@
+my-staticwebsite:
+  Type: AWS::StaticWebsite
+
+  Configuration:
+    Distribution:
+      Pipeline::Security:
+        - Source: client-public-edge
+          Allow: ['TCP:443', 'TCP:80']
+      Properties:
+        DistributionConfig:
+          Aliases:
+            - example.domain.com.   # Your domain name here
+          CacheBehaviors:
+            - DefaultTTL: 30
+              Compress: true
+              ForwardedValues:
+                QueryString: false
+              PathPattern: "index.html"
+              TargetOriginId: bucket
+              ViewerProtocolPolicy: redirect-to-https
+            - DefaultTTL: 30
+              Compress: true
+              ForwardedValues:
+                QueryString: false
+              PathPattern: "dynamic/*"
+              TargetOriginId: bucket
+              ViewerProtocolPolicy: redirect-to-https
+          DefaultCacheBehavior:
+            DefaultTTL: 3600        # 1 hour
+            Compress: true
+            ForwardedValues:
+              QueryString: false
+            TargetOriginId: bucket
+            ViewerProtocolPolicy: redirect-to-https
+          ViewerCertificate:
+            # Certificate must be in us-east-1 (N. Virginia)
+            AcmCertificateArn: arn:aws:acm:us-east-1:012345678912:certificate/0123456-abcdef

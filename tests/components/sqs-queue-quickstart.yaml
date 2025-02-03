@@ -1,0 +1,12 @@
+my-queue:
+  Type: AWS::SQS::Queue
+  Persist: true
+
+  Configuration:
+    Queue:
+      Pipeline::Security:
+        - Allow: [ write ]
+          Source: lambda
+        - Allow: [ read ]
+          Source: instance
+      Properties: {}

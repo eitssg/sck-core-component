@@ -1,0 +1,38 @@
+my-Doc-db:
+  Type: AWS::DocDB::DBCluster
+  Persist: true
+
+  Configuration:
+    DBCluster:
+      Pipeline::Security:
+        - {Allow: 'TCP:27017', Source: private-subnet}
+        - {Allow: 'TCP:27017', Source: cgnat-subnet}
+      Properties:
+        DatabaseName: dbtest
+        EngineVersion: '4.0.0'
+        MasterUsername: masteruser
+        PreferredBackupWindow: ''
+        PreferredMaintenanceWindow: ''
+        DBClusterIdentifier: ''
+
+    DBInstance:
+      DependsOn:
+        - DBCluster
+      Properties:
+        AutoMinorVersionUpgrade: false
+        # DBInstanceIdentifier: !Ref DbCluster
+        DBInstanceClass: DBInstance
+
+    DBClusterParameterGroup:
+      Properties:
+        Description: " cluster parameter group"
+        Family: docdb4.0
+        Parameters: 
+          audit_logs: "disabled"
+          tls: "enabled"
+          ttl_monitor: "enabled"
+
+    DBInstanceParameterGroup:
+      Properties:
+        Description: " instance parameter group"
+        Family: docdb4.0

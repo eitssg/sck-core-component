@@ -1,0 +1,13 @@
+my-mariadb-db:
+  Type: AWS::RDS::MariaDB
+  Persist: true
+
+  Configuration:
+    DbInstance:
+      Pipeline::Security:
+        - Allow: TCP:3306
+          Source: my-app
+      Properties:
+        AllocatedStorage: 20
+        DBInstanceClass: db.t3.medium
+        MasterUsername: root

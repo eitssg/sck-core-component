@@ -1,0 +1,22 @@
+my-redshift:
+  Type: AWS::Redshift::Cluster
+  Persist: false
+  Configuration:
+    RedshiftCluster:
+      Pipeline::Security:
+        - Allow: TCP:5439
+          Source: intranet
+      DeletionPolicy: Delete
+      Properties:
+        AllowVersionUpgrade: true
+        AutomatedSnapshotRetentionPeriod: 6
+        ClusterType: single-node
+        DBName: myshift
+        MasterUsername: root
+        MasterUserPassword: IWantSecretsManagerSupport
+        NodeType: dc2.large
+        NumberOfNodes: 1
+        Port: 5439
+        SnapshotIdentifier:
+          Fn::Pipeline::SnapshotId:
+            Name: SomeSnapshotAlias

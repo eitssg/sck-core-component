@@ -1,0 +1,13 @@
+my-postgresql-db:
+  Type: AWS::RDS::PostgreSQL
+  Persist: true
+
+  Configuration:
+    DbInstance:
+      Pipeline::Security:
+        - Allow: TCP:5432
+          Source: my-app
+      Properties:
+        AllocatedStorage: 20
+        DBInstanceClass: db.t3.medium
+        MasterUsername: root

@@ -1,0 +1,13 @@
+my-mysql-db:
+  Type: AWS::RDS::MySQL
+  Persist: true
+
+  Configuration:
+    DbInstance:
+      Pipeline::Security:
+        - Allow: TCP:3306
+          Source: my-app
+      Properties:
+        AllocatedStorage: 20
+        DBInstanceClass: db.t3.medium
+        MasterUsername: root

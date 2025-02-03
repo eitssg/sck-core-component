@@ -1,0 +1,108 @@
+my-app:
+  Type: AWS::AutoScale
+
+  Configuration:
+
+    AutoScalingGroup:
+      Pipeline::Security:
+        - Allow: TCP:22
+          Source: bastion
+      CreationPolicy:
+        AutoScalingCreationPolicy:
+          MinSuccessfulInstancesPercent: 90
+      Properties:
+        Cooldown: 300
+        HealthCheckGracePeriod: 900
+        MinSize: 2
+        MaxSize: 6
+
+    LaunchConfiguration:
+      Metadata:
+        AWS::CloudFormation::Init:
+          config:
+            sources:
+              /var/www/html:
+                Fn::Pipeline::FileUrl:
+                  Path: web.tar.gz
+            commands:
+              01-change-ownership:
+                command: 'chown -R apache:apache /var/www/html'
+            services:
+              sysvinit:
+                httpd:
+                  enabled: true
+                  ensureRunning: true
+      Properties:
+        InstanceType: t3.small
+        ImageId:
+          Fn::Pipeline::ImageId:
+            Name: amazon-linux
+
+    # This is how you differentiate between CLB & ALB.
+    ApplicationLoadBalancer:
+      Pipeline::Security:
+        - Allow: TCP:80
+          Source: intranet
+      Properties:
+        Scheme: internal
+
+    # For ALB
+    DefaultTargetGroup:
+      Properties:
+        Port: 80
+        Protocol: HTTP
+        HealthCheckPath: /
+
+    # For ALB
+    DefaultListener:
+      Properties:
+        Protocol: HTTP
+        Port: 80
+
+    # For ALB
+    DefaultListenerRule:
+      Properties:
+        Actions:
+          - TargetGroupArn: DefaultTargetGroup
+        Conditions:
+          - Field: path-pattern
+            Values:
+              - '/*'
+        ListenerArn: DefaultListener
+        Priority: 1
+
+    ScaleDownScalingPolicy:
+      Properties:
+        AdjustmentType: ChangeInCapacity
+        Cooldown: 60
+        PolicyType: SimpleScaling
+        ScalingAdjustment: -1
+
+    ScaleUpScalingPolicy:
+      Properties:
+        AdjustmentType: ChangeInCapacity
+        Cooldown: 300
+        PolicyType: SimpleScaling
+        ScalingAdjustment: 1
+
+    HighCpuAlarm:
+      Properties:
+        AlarmActions:
+          - Ref: ScaleUpScalingPolicy
+        ComparisonOperator: GreaterThanThreshold
+        EvaluationPeriods: 2
+        MetricName: CPUUtilization
+        Period: 60
+        Statistic: Average
+        Threshold: 75
+
+    LowCpuAlarm:
+      Properties:
+        AlarmActions:
+          - Ref: ScaleDownScalingPolicy
+        ComparisonOperator: LessThanThreshold
+        EvaluationPeriods: 4
+        MetricName: CPUUtilization
+        Period: 60
+        Statistic: Average
+        Threshold: 35

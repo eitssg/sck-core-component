@@ -1,0 +1,60 @@
+---
+alb:
+  Type: AWS::ApplicationLoadBalancer
+  DependsOn:
+    - mylambda
+    - nodelambda
+  Persist: false
+  Configuration:
+
+    ApplicationLoadBalancer:
+      Pipeline::Security:
+        - Source: [intranet]
+          Allow: TCP:80
+      Properties:
+        Scheme: internal
+
+    HttpListener:
+      Properties:
+        Port: 80
+        Protocol: HTTP
+
+    Http1ListenerRule:
+      Properties:
+        Actions:
+          - TargetGroupArn: !Ref DefaultTargetGroup
+            Type: forward
+        Conditions:
+          - Field: path-pattern
+            Values: [ '/mylambda*' ]
+        ListenerArn:
+          Ref: HttpListener
+        Priority: 1  # Note: Easy to duplicate this value and fail during CFN create.
+
+    Http2ListenerRule:
+      Properties:
+        Actions:
+          - TargetGroupArn: !Ref NodeLambdaTargetGroup
+            Type: forward
+        Conditions:
+          - Field: path-pattern
+            Values: [ '/nodelambda*' ]
+        ListenerArn:
+          Ref: HttpListener
+        Priority: 2
+
+    DefaultTargetGroup:
+      Properties:
+        Targets:
+          - Id:
+              Fn::Pipeline::GetOutput:
+                Component: mylambda
+                OutputName: DeploymentAliasArn
+
+    NodeLambdaTargetGroup:
+      Properties:
+        Targets:
+          - Id:
+              Fn::Pipeline::GetOutput:
+                Component: nodelambda
+                OutputName: DeploymentAliasArn

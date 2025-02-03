@@ -1,0 +1,79 @@
+my-app:
+  Type: AWS::AutoScale
+
+  Configuration:
+    BakeInstance:
+      Properties:
+        ImageId:
+          Fn::Pipeline::ImageId:
+            Name: amazon-linux
+        InstanceType: t3.medium
+
+    AutoScalingGroup:
+      Pipeline::Security:
+        - Allow: TCP:22
+          Source: bastion
+      CreationPolicy:
+        AutoScalingCreationPolicy:
+          MinSuccessfulInstancesPercent: 90
+      Properties:
+        Cooldown: 300
+        HealthCheckGracePeriod: 900
+        MinSize: 2
+        MaxSize: 4
+
+    LaunchConfiguration:
+      Properties:
+        InstanceType: t3.medium
+
+    LoadBalancer:
+      Pipeline::Security:
+        - Allow: TCP:80
+          Source: intranet
+      Properties:
+        HealthCheck:
+          HealthyThreshold: 2
+          Target: HTTP:80/
+          Interval: 10
+          Timeout: 5
+          UnhealthyThreshold: 2
+        Listeners:
+          - InstancePort: 80
+            LoadBalancerPort: 80
+            Protocol: HTTP
+
+    ScaleDownScalingPolicy:
+      Properties:
+        AdjustmentType: ChangeInCapacity
+        Cooldown: 60
+        PolicyType: SimpleScaling
+        ScalingAdjustment: -1
+
+    ScaleUpScalingPolicy:
+      Properties:
+        AdjustmentType: ChangeInCapacity
+        Cooldown: 300
+        PolicyType: SimpleScaling
+        ScalingAdjustment: 1
+
+    HighCpuAlarm:
+      Properties:
+        AlarmActions:
+          - Ref: ScaleUpScalingPolicy
+        ComparisonOperator: GreaterThanThreshold
+        EvaluationPeriods: 2
+        MetricName: CPUUtilization
+        Period: 60
+        Statistic: Average
+        Threshold: 75
+
+    LowCpuAlarm:
+      Properties:
+        AlarmActions:
+          - Ref: ScaleDownScalingPolicy
+        ComparisonOperator: LessThanThreshold
+        EvaluationPeriods: 4
+        MetricName: CPUUtilization
+        Period: 60
+        Statistic: Average
+        Threshold: 35
