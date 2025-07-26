@@ -1,7 +1,6 @@
 from typing import Any
 import re
 import io
-from ruamel.yaml import YAML
 
 import core_framework as util
 
@@ -46,7 +45,7 @@ def render_component_defintitions(
         # YAML load and save the component definitions
         stream = io.StringIO(rendered)
         stream.name = filename
-        file_definitions = YAML(typ="rt").load(stream)
+        file_definitions = util.read_yaml(stream)
 
         # If empty file - just ignore it
         if not file_definitions:

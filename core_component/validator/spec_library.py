@@ -1,6 +1,5 @@
 import core_framework as util
 from glob import glob
-import yaml
 import os
 import core_logging as log
 
@@ -60,11 +59,13 @@ class SpecLibrary:
         # Load consumable specs
         file_names = glob(file_glob, recursive=True)
         for file_name in file_names:
-            with open(file_name) as f:
-                spec = yaml.safe_load(f)
-                if not spec:
-                    continue
-                util.deep_merge_in_place(self.specs, spec)
+
+            spec = util.load_yaml_file(file_name)  # Load the YAML file to ensure it exists
+
+            if not spec:
+                continue
+
+            util.deep_merge_in_place(self.specs, spec)
 
     def __compile(self, spec_key: str, spec: dict, layer=0) -> dict:  # noqa: C901
         spec = util.deep_copy(spec)
