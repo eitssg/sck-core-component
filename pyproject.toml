@@ -5,7 +5,7 @@ build-backend = "poetry_dynamic_versioning.backend"
 [tool.poetry]
 name = "sck-core-component"
 description = "Core-Automation Component Compiler"
-version = "0.0.7"
+version = "0.0.8"
 license = "GPL-3.0-only"
 readme = "README.md"
 authors = ["James Barwick <jbarwick@me.com>"]
@@ -24,8 +24,8 @@ filters = "^1.3.2"
 deepdiff = "^7.0.1"
 jinja2 = "^3.1.4"
 jmespath = "^1.0.1"
-sck-core-framework = "^0.0.7"
-sck-core-db = "^0.0.7"
+sck-core-framework = "^0.0.8"
+sck-core-db = "^0.0.8"
 
 [[tool.poetry.source]]
 name = "nexus"
