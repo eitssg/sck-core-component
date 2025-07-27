@@ -60,7 +60,9 @@ class SpecLibrary:
         file_names = glob(file_glob, recursive=True)
         for file_name in file_names:
 
-            spec = util.load_yaml_file(file_name)  # Load the YAML file to ensure it exists
+            spec = util.load_yaml_file(
+                file_name
+            )  # Load the YAML file to ensure it exists
 
             if not spec:
                 continue
