@@ -1,6 +1,6 @@
 from typing import Any
 import re
-import io
+import zipfile
 
 import core_framework as util
 
@@ -12,97 +12,96 @@ DEFINITION_FILE_PATTERN = r"components/[^/\\]+\.yaml$"
 VARS_FILE_PATTERN = r"vars/[^/\\]+\.yaml$"
 
 
-def render_component_defintitions(
-    files: dict[str, Any], context: dict[str, Any]
-) -> dict[str, Any]:
+def render_component_defintitions(package_file_path: str, context: dict[str, Any]) -> dict[str, Any]:
     """
-    Load the component definitions from the provided files and render them
+    Load the component definitions from the provided zip file and render them
     with Jinja2 using the provided context.
 
-    Args:
-        files (dict): A dictionary of filenames and their contents.
-        context (dict): The context to render the component definitions with.
-
-    Returns:
-        dict: The rendered component definitions.
+    :param zip_file_path: Path to the zip file containing the component definitions.
+    :type zip_file_path: str
+    :param context: The context to render the component definitions with.
+    :type context: dict[str, Any]
+    :returns: The rendered component definitions.
+    :rtype: dict[str, Any]
     """
     log.debug("Running preprocessor.  Template rendering component definitions")
 
     # Render the definitions files
-    renderer = Jinja2Renderer(dictionary=files)
+    renderer = Jinja2Renderer()
 
+    definitions_pattern = re.compile(DEFINITION_FILE_PATTERN)
     definitions: dict = {}
-    for filename in files:
+    with zipfile.ZipFile(package_file_path, "r") as zip_file:
+        for filename in zip_file.namelist():
 
-        # Skip non-definition files
-        if not re.match(DEFINITION_FILE_PATTERN, filename):
-            continue
+            # Skip non-definition files
+            if not definitions_pattern.match(filename):
+                continue
 
-        # Render the file
-        log.debug("Processing definition file '{}'".format(filename))
-        rendered = renderer.render_file(filename, context)
+            # Render the file
+            log.debug("Processing definition file '{}'".format(filename))
 
-        # YAML load and save the component definitions
-        stream = io.StringIO(rendered)
-        stream.name = filename
-        file_definitions = util.read_yaml(stream)
+            file_content = zip_file.read(filename).decode("utf-8")
+            rendered = renderer.render_string(file_content, context)
+            if not rendered:
+                continue
 
-        # If empty file - just ignore it
-        if not file_definitions:
-            continue
+            file_definitions = util.from_yaml(rendered)
 
-        # Add definitions in this file to other definitions
-        if isinstance(file_definitions, dict):
-            definitions.update(file_definitions)
-        else:
-            raise RuntimeError(
-                "Invalid component definition file '{}'".format(filename)
-            )
+            # Add definitions in this file to other definitions
+            if isinstance(file_definitions, dict):
+                definitions.update(file_definitions)
+            else:
+                raise RuntimeError("Invalid component definition file '{}'".format(filename))
 
     return definitions
 
 
-def __select_branch_variables(
-    branch: str, variables: dict[str, Any]
-) -> dict[str, Any]:  # noqa: C901
-    """Load default variables AND ALL variables section that match the branch name.
+def __select_branch_variables(branch: str, variables: dict[str, Any]) -> dict[str, Any]:  # noqa: C901
+    """
+    Load default variables AND ALL variables sections that match the branch name.
 
     THIS IS A CHANGE.
 
-    The old methdology attemted to find ONE section in the variables file that matched the branch name.
+    The old methodology attempted to find ONE section in the variables file that matched the branch name.
     A "best match" approach.
 
     This new method will load the default variables AND ALL variables sections that match the branch name.
 
-    So, if your branch name is "dev" and the variables file contains:
+    So, if your branch name is "dev" and the variables file contains::
 
-    _defaults:
-        Lab: Default
-        Foo: bar
+        _defaults:
+            Lab: Default
+            Foo: bar
 
-    dev:
-        Ptn: dev
-        Foo: baz
+        dev:
+            Ptn: dev
+            Foo: baz
 
-    de*:
-        Foo: qux
+        de*:
+            Foo: qux
 
-    d*:
-        Foo: quux
-        Item: 123
+        d*:
+            Foo: quux
+            Item: 123
 
-    another:
-        match: ^dev$
-        Ref: 456
+        another:
+            match: ^dev$
+            Ref: 456
 
-    Then the resulting variables will be:
+    Then the resulting variables will be::
 
-    { Lab: Default, Ptn: dev, Foo: quux, Item: 123, Ref: 456 }
+        { Lab: Default, Ptn: dev, Foo: quux, Item: 123, Ref: 456 }
 
-    All sections are inspected and merged. SEQUENCING is important.  The last section to set a value for a key wins.
+    All sections are inspected and merged. SEQUENCING is important. The last section to set a value for a key wins.
 
+    :param branch: The branch name to match variables for.
+    :type branch: str
+    :param variables: Dictionary of all loaded variables sections.
+    :type variables: dict[str, Any]
+    :returns: The merged variables for the specified branch.
+    :rtype: dict[str, Any]
     """
-
     result_variables: dict = {}
 
     for branch_pattern, branch_variables in variables.items():
@@ -111,80 +110,71 @@ def __select_branch_variables(
 
         # Match by name
         if branch_pattern in ["_defaults", "_default", "defaults", "default", branch]:
-            util.deep_merge_in_place(
-                result_variables, branch_variables, merge_lists=True
-            )
+            util.deep_merge_in_place(result_variables, branch_variables, merge_lists=True)
             continue
 
         # Match by wildcard
         if branch_pattern.endswith("*"):
             branch_prefix = branch_pattern.rstrip("*")
             if branch.startswith(branch_prefix):
-                util.deep_merge_in_place(
-                    result_variables, branch_variables, merge_lists=True
-                )
+                util.deep_merge_in_place(result_variables, branch_variables, merge_lists=True)
                 continue
 
         # Match by regex pattern
         regex = branch_variables.get("match", None)
         if regex and re.match(regex, branch):
-            util.deep_merge_in_place(
-                result_variables, branch_variables, merge_lists=True
-            )
+            util.deep_merge_in_place(result_variables, branch_variables, merge_lists=True)
             continue
 
     return result_variables
 
 
-def load_user_variables(facts: dict[str, Any], files: dict[str, Any]) -> dict[str, Any]:
+def load_user_variables(facts: dict[str, Any], package_file_path: str) -> dict[str, Any]:
     """
-    Load apps ``platform/vars/*.yaml``,
+    Load apps ``platform/vars/*.yaml`` from a zip file.
 
-    for use on the context:
+    This function reads all variables files from the provided zip file,
+    merges them, and selects the variables for the specified branch.
 
-    SomeCfnProp: {{ vars.FooBar }}
+    The method will read all variables files and MERGE them. Any sections that have the same names
+    will be MERGED. Indeed, if a later file/section updates a variable in a section, the later file will win.
 
-    CHANGE IN FUNCTIONALITY.
+    Once all VARS have been "MERGED", the vars for your specific branch (matched) will be selected as a result.
 
-    The old method used to read each file in alphabetical order and sections would overwrite a previously read
-    section.
+    For use on the context::
 
-    NEW METHOD
+        SomeCfnProp: {{ vars.FooBar }}
 
-    The new method will read all variables files and MERGE them.  Any sections that thave the same names
-    will be MERGED.  Indeed, if a later file/section updates a variable in a section, the later file will win.
-
-    Once all VARS have bee "MERGED", the vars for your specific branch (matched) will be selected as a result.
-
-    Args:
-        facts (dict): The facts about the deployment containing the "Branch" code for the vars.
-        files (dict): The files to load the variables from.
-
-    Returns:
-        dict: The user variables loaded from the vars/* folder.
-
+    :param facts: The facts about the deployment containing the "Branch" code for the vars.
+    :type facts: dict[str, Any]
+    :param zip_file_path: Path to the zip file containing the variables files.
+    :type zip_file_path: str
+    :returns: The user variables loaded from the vars/* folder.
+    :rtype: dict[str, Any]
     """
-    # Load variables files
-    variables: dict = {}
-
     branch = facts.get("Branch")
     if not branch:
         log.warning("No branch information found in facts")
-        return variables
+        return {}
 
     log.info("Loading user variables for {} branch", branch)
 
-    for filename in files:
+    vars_pattern = re.compile(VARS_FILE_PATTERN)
+    variables: dict = {}
+    with zipfile.ZipFile(package_file_path, "r") as zip_file:
 
-        # Skip non-vars files
-        if not re.match(VARS_FILE_PATTERN, filename):
-            continue
+        for file_path in zip_file.namelist():
 
-        log.debug("Processing variables file '{}'".format(filename))
-        stream = io.StringIO(files[filename])
-        stream.name = filename
-        file_variables = util.read_yaml(stream)
-        util.deep_merge_in_place(variables, file_variables, merge_lists=True)
+            # Skip non-vars files
+            if not vars_pattern.match(file_path):
+                continue
+
+            log.debug("Processing variables file '{}'".format(file_path))
+
+            file_content = zip_file.read(file_path).decode("utf-8")
+            file_variables = util.from_yaml(file_content)
+
+            util.deep_merge_in_place(variables, file_variables, merge_lists=True)
 
     # Load variables for this branch
     branch_variables = __select_branch_variables(branch, variables)

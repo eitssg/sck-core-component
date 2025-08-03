@@ -8,17 +8,13 @@ class SpecLibrary:
 
     module_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-    SPEC_FILE_GLOBS = [
-        os.path.join(module_dir, "compiler", "consumables", "**", "specs", "*.yaml")
-    ]
+    SPEC_FILE_GLOBS = [os.path.join(module_dir, "compiler", "consumables", "**", "specs", "*.yaml")]
 
     specs: dict
     compiled_specs: list[dict]
     meta_prefix: str
 
-    def __init__(
-        self, spec_file_globs: list[str] = SPEC_FILE_GLOBS, meta_prefix: str = "_"
-    ):
+    def __init__(self, spec_file_globs: list[str] = SPEC_FILE_GLOBS, meta_prefix: str = "_"):
         self.specs = {}
         self.compiled_specs = []
         self.meta_prefix = meta_prefix
@@ -60,9 +56,7 @@ class SpecLibrary:
         file_names = glob(file_glob, recursive=True)
         for file_name in file_names:
 
-            spec = util.load_yaml_file(
-                file_name
-            )  # Load the YAML file to ensure it exists
+            spec = util.load_yaml_file(file_name)  # Load the YAML file to ensure it exists
 
             if not spec:
                 continue
@@ -73,9 +67,7 @@ class SpecLibrary:
         spec = util.deep_copy(spec)
 
         if layer > 15:
-            log.warn(
-                "Validation spec too deep, stopping compilation '{}'".format(spec_key)
-            )
+            log.warn("Validation spec too deep, stopping compilation '{}'".format(spec_key))
             spec[self.__spec_key("Type")] = "freeform"
 
         # Default the spec type to 'dict' if not specified
@@ -87,15 +79,8 @@ class SpecLibrary:
         if spec_type == "list":
             fq_spec_key = spec_key + "[]"
 
-            if (
-                self.__spec_key("ListItemType") not in spec
-                and self.__spec_key("ListItemSpec") not in spec
-            ):
-                raise Exception(
-                    "List type must define _ListItemType or _ListItemSpec, spec key '{}'".format(
-                        spec_key
-                    )
-                )
+            if self.__spec_key("ListItemType") not in spec and self.__spec_key("ListItemSpec") not in spec:
+                raise Exception("List type must define _ListItemType or _ListItemSpec, spec key '{}'".format(spec_key))
 
             # Convert ListItemType into ListItemSpec
             if self.__spec_key("ListItemType") in spec:
@@ -104,31 +89,21 @@ class SpecLibrary:
 
                 if self.__is_primitive_type(item_type):
                     # Map primitive type straight through to ListItemSpec
-                    spec[self.__spec_key("ListItemSpec")] = util.deep_merge(
-                        {self.__spec_key("Type"): item_type}, item_spec
-                    )
+                    spec[self.__spec_key("ListItemSpec")] = util.deep_merge({self.__spec_key("Type"): item_type}, item_spec)
                 elif item_type in self.specs:
                     # Load custom type into ListItemSpec
                     custom_type_spec = self.specs[item_type]
 
                     # Default the spec type to 'dict', to avoid circular loops
-                    custom_type_spec[self.__spec_key("Type")] = custom_type_spec.get(
-                        self.__spec_key("Type"), "dict"
-                    )
+                    custom_type_spec[self.__spec_key("Type")] = custom_type_spec.get(self.__spec_key("Type"), "dict")
 
                     # Merge loaded item spec into existing spec
-                    spec[self.__spec_key("ListItemSpec")] = util.deep_merge(
-                        custom_type_spec, item_spec
-                    )
+                    spec[self.__spec_key("ListItemSpec")] = util.deep_merge(custom_type_spec, item_spec)
                 else:
-                    raise Exception(
-                        "ERROR: Spec type '{}' does not exist".format(item_type)
-                    )
+                    raise Exception("ERROR: Spec type '{}' does not exist".format(item_type))
 
             # Compile the ListItemSpec
-            spec[self.__spec_key("ListItemSpec")] = self.__compile(
-                fq_spec_key, spec[self.__spec_key("ListItemSpec")], layer + 1
-            )
+            spec[self.__spec_key("ListItemSpec")] = self.__compile(fq_spec_key, spec[self.__spec_key("ListItemSpec")], layer + 1)
 
         elif spec_type == "dict":
             # Compile the spec's child keys
@@ -138,14 +113,11 @@ class SpecLibrary:
                     continue
 
                 fq_child_spec_key = spec_key + "." + child_spec_key
-                compiled = self.__compile(
-                    fq_child_spec_key, spec[child_spec_key], layer + 1
-                )
+                compiled = self.__compile(fq_child_spec_key, spec[child_spec_key], layer + 1)
                 util.deep_merge_in_place(
                     spec[child_spec_key],
                     compiled,
-                    should_merge=lambda k: k == self.__spec_key("Type")
-                    or not k.startswith(self.meta_prefix),
+                    should_merge=lambda k: k == self.__spec_key("Type") or not k.startswith(self.meta_prefix),
                 )
         elif self.__is_primitive_type(spec_type):
             # Nothing to compile for primitive types
@@ -153,24 +125,19 @@ class SpecLibrary:
         else:
             # Custom type
             if spec_type not in self.specs:
-                raise Exception(
-                    "ERROR: Spec type '{}' does not exist".format(spec_type)
-                )
+                raise Exception("ERROR: Spec type '{}' does not exist".format(spec_type))
 
             # Load custom type
             custom_type_spec = self.specs[spec_type]
 
             # Default the spec type to 'dict', to avoid circular loops
-            custom_type_spec[self.__spec_key("Type")] = custom_type_spec.get(
-                self.__spec_key("Type"), "dict"
-            )
+            custom_type_spec[self.__spec_key("Type")] = custom_type_spec.get(self.__spec_key("Type"), "dict")
 
             # Merge type into spec
             util.deep_merge_in_place(
                 spec,
                 custom_type_spec,
-                should_merge=lambda k: k == self.__spec_key("Type")
-                or not k.startswith(self.meta_prefix),
+                should_merge=lambda k: k == self.__spec_key("Type") or not k.startswith(self.meta_prefix),
             )
 
             # Re-compile spec since type would have changed from the merge

@@ -10,7 +10,7 @@ my-bucket:
           Allow: [read]
       Properties:
         BucketName:
-          Fn::Pipeline::S3BucketName:   # Must be a per-branch bucket
+          Fn::Pipeline::S3BucketName: # Must be a per-branch bucket
             Scope: branch
         NotificationConfiguration:
           TopicConfigurations:
@@ -19,9 +19,9 @@ my-bucket:
                 S3Key:
                   Rules:
                     - Name: prefix
-                      Value: 'logs/'
+                      Value: "logs/"
                     - Name: suffix
-                      Value: '.log'
+                      Value: ".log"
               Topic:
                 Ref: LogsTopic
             - Event: s3:ObjectCreated:*
@@ -29,21 +29,21 @@ my-bucket:
                 S3Key:
                   Rules:
                     - Name: prefix
-                      Value: 'data/'
+                      Value: "data/"
               Topic:
                 Ref: DataTopic
 
     LogsTopic:
-      Properties: {}    # No properties
+      Properties: {} # No properties
 
     DataTopic:
-      Properties: {}    # No properties
+      Properties: {} # No properties
 
 # Lambda component
 my-lambda:
   Type: AWS::Serverless
   DependsOn:
-    - my-bucket   # Bucket must exist before we can subscribe
+    - my-bucket # Bucket must exist before we can subscribe
 
   Configuration:
     Function:
@@ -61,7 +61,7 @@ my-lambda:
       Properties:
         Endpoint:
           Fn::Pipeline::LambdaArn:
-            Scope: build      # Topic messages will invoke the Lambda build-x alias
+            Scope: build # Topic messages will invoke the Lambda build-x alias
         TopicArn:
           # Retrieve ARN of LogsTopic from my-bucket component
           Fn::Pipeline::GetOutput:
@@ -72,7 +72,7 @@ my-lambda:
       Properties:
         Endpoint:
           Fn::Pipeline::LambdaArn:
-            Scope: release    # Topic messages will invoke the Lambda release alias
+            Scope: release # Topic messages will invoke the Lambda release alias
         TopicArn:
           # Retrieve ARN of DataTopic from my-bucket component
           Fn::Pipeline::GetOutput:
