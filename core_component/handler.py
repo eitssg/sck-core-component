@@ -11,7 +11,6 @@ import io
 import re
 import jmespath
 import traceback
-import zipfile as zip
 import json
 from datetime import datetime
 
@@ -26,12 +25,7 @@ from core_helper.magic import MagicS3Client
 from core_db.dbhelper import register_item, update_status, update_item
 from core_db.facter import get_facts
 
-from .preprocessor import (
-    load_user_variables,
-    load_user_variables_zip,
-    render_component_defintitions,
-    render_component_defintitions_zip,
-)
+from .preprocessor import load_user_variables, render_component_defintitions
 from .compiler import (
     combine_result_files,
     compile_app_files,

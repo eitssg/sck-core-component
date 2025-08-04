@@ -1,22 +1,28 @@
+# use boto3 to connect to DynamoDB, get a list of all tables, then delete all tables
+import boto3
+
+import core_logging as logging
 import core_framework as util
 
 import core_helper.aws as aws
 
-from core_db.event import EventModel
-from core_db.item import ItemModel
-from core_db.registry.client import ClientFacts
+from core_db.event import EventModelFactory
+from core_db.item import ItemModelFactory
+from core_db.registry.client import ClientFacts, ClientFactsFactory
 from core_db.registry.portfolio import (
     PortfolioFacts,
+    PortfolioFactsFactory,
     ContactFacts,
     ApproverFacts,
     ProjectFacts,
     OwnerFacts,
 )
-from core_db.registry.app import AppFacts
+from core_db.registry.app import AppFacts, AppFactsFactory
 from core_db.registry.zone import (
     ZoneFacts,
-    AccountFacts as AccountFactsModel,
-    RegionFacts as RegionFactsModel,
+    ZoneFactsFactory,
+    AccountFacts,
+    RegionFacts,
     KmsFacts,
     SecurityAliasFacts,
     ProxyFacts,
@@ -28,31 +34,40 @@ def bootstrap_dynamo():
     # see environment variables in .env
     host = util.get_dynamodb_host()
 
-    assert (
-        host == "http://localhost:8000"
-    ), "DYNAMODB_HOST must be set to http://localhost:8000"
+    assert host == "http://localhost:8000", "DYNAMODB_HOST must be set to http://localhost:8000"
 
     try:
-        if not EventModel.exists():
-            EventModel.create_table(wait=True)
 
-        if not ItemModel.exists():
-            ItemModel.create_table(wait=True)
+        client_name = util.get_client_name()
 
-        if not ClientFacts.exists():
-            ClientFacts.create_table(wait=True)
+        dynamodb = boto3.resource("dynamodb", endpoint_url=host)
 
-        if not PortfolioFacts.exists():
-            PortfolioFacts.create_table(wait=True)
+        tables = dynamodb.tables.all()
+        if tables:
+            # delete all tables
+            for table in tables:
+                logging.debug(f"Deleting table: {table.name}")
+                table.delete()
+                table.wait_until_not_exists()
+                logging.debug(f"Table {table.name} deleted successfully.")
 
-        if not AppFacts.exists():
-            AppFacts.create_table(wait=True)
+        ClientFacts = ClientFactsFactory.get_model(client_name)
+        ClientFacts.create_table(wait=True)
 
-        if ZoneFacts.exists():
-            ZoneFacts.delete_table()
+        PortfolioFacts = PortfolioFactsFactory.get_model(client_name)
+        PortfolioFacts.create_table(wait=True)
 
-        if not ZoneFacts.exists():
-            ZoneFacts.create_table(wait=True)
+        AppFacts = AppFactsFactory.get_model(client_name)
+        AppFacts.create_table(wait=True)
+
+        ZoneFacts = ZoneFactsFactory.get_model(client_name)
+        ZoneFacts.create_table(wait=True)
+
+        ItemModel = ItemModelFactory.get_model(client_name)
+        ItemModel.create_table(wait=True)
+
+        EventModel = EventModelFactory.get_model(client_name)
+        EventModel.create_table(wait=True)
 
     except Exception as e:
         print(e)
@@ -100,7 +115,8 @@ def get_client_data(organization: dict, arguments: dict) -> ClientFacts:
 
     aws_account_id = organization["account_id"]
 
-    cf = ClientFacts(
+    client_model = ClientFactsFactory.get_model(client)
+    cf = client_model(
         client=client,
         domain="my-domain.com",
         organization_id=organization["id"],
@@ -131,21 +147,14 @@ def get_portfolio_data(client_data: ClientFacts, arguments: dict) -> PortfolioFa
 
     domain_name = client_data.Domain
 
-    portfolio = PortfolioFacts(
+    portfolio_model = PortfolioFactsFactory.get_model(client_data.Client)
+    portfolio = portfolio_model(
         Client=client_data.Client,
         Portfolio=portfllio_name,
         Contacts=[ContactFacts(name="John Doe", email="john.doe@tmail.com")],
-        Approvers=[
-            ApproverFacts(
-                name="Jane Doe", email="john.doe@tmail.com", roles=["admin"], sequence=1
-            )
-        ],
-        Project=ProjectFacts(
-            name="my-project", description="my project description", code="MYPRJ"
-        ),
-        Bizapp=ProjectFacts(
-            name="my-bizapp", description="my bizapp description", code="MYBIZ"
-        ),
+        Approvers=[ApproverFacts(name="Jane Doe", email="john.doe@tmail.com", roles=["admin"], sequence=1)],
+        Project=ProjectFacts(name="my-project", description="my project description", code="MYPRJ"),
+        Bizapp=ProjectFacts(name="my-bizapp", description="my bizapp description", code="MYBIZ"),
         Owner=OwnerFacts(name="John Doe", email="john.doe@tmail.com"),
         Domain=f"my-app.{domain_name}",
         Tags={
@@ -167,10 +176,11 @@ def get_zone_data(client_data: ClientFacts, arguments: dict) -> ZoneFacts:
     automation_account_id = client_data.AutomationAccount
     automation_account_name = client_data.OrganizationName
 
-    zone = ZoneFacts(
+    zone_model = ZoneFactsFactory.get_model(client_data.Client)
+    zone = zone_model(
         Client=client_data.Client,
         Zone="my-automation-service-zone",
-        AccountFacts=AccountFactsModel(
+        AccountFacts=AccountFacts(
             Client=client_data.Client,
             AwsAccountId=automation_account_id,
             OrganizationalUnit="PrimaryUnit",
@@ -196,26 +206,20 @@ def get_zone_data(client_data: ClientFacts, arguments: dict) -> ZoneFacts:
             Tags={"Zone": "my-automation-service-zone"},
         ),
         RegionFacts={
-            "sin": RegionFactsModel(
+            "sin": RegionFacts(
                 AwsRegion="ap-southeast-1",
                 AzCount=3,
                 ImageAliases={"imageid:latest": "ami-2342342342344"},
                 MinSuccessfulInstancesPercent=100,
                 SecurityAliases={
-                    "internet": [
-                        SecurityAliasFacts(
-                            Type="cidr", Value="0.0.0.0/0", Description="Internet CIDR"
-                        )
-                    ],
+                    "internet": [SecurityAliasFacts(Type="cidr", Value="0.0.0.0/0", Description="Internet CIDR")],
                     "intranet": [
                         SecurityAliasFacts(
                             Type="cidr",
                             Value="192.168.0.0/16",
                             Description="Global CIDR 1",
                         ),
-                        SecurityAliasFacts(
-                            Type="cidr", Value="10.0.0.0/8", Description="Global CIDR 2"
-                        ),
+                        SecurityAliasFacts(Type="cidr", Value="10.0.0.0/8", Description="Global CIDR 2"),
                     ],
                 },
                 SecurityGroupAliases={
@@ -245,9 +249,7 @@ def get_zone_data(client_data: ClientFacts, arguments: dict) -> ZoneFacts:
     return zone
 
 
-def get_app_data(
-    portfolio_data: PortfolioFacts, zone_data: ZoneFacts, arguments: dict
-) -> AppFacts:
+def get_app_data(portfolio_data: PortfolioFacts, zone_data: ZoneFacts, arguments: dict) -> AppFacts:
 
     # The client/portfolio is where this BizApp that this Deployment is for.
     # The Zone is where this BizApp component will be deployed.
@@ -258,7 +260,8 @@ def get_app_data(
 
     client_portfolio_key = f"{client}:{portfolio}"
 
-    app = AppFacts(
+    apps_model = AppFactsFactory.get_model(client_portfolio_key)
+    app = apps_model(
         ClientPortfolio=client_portfolio_key,
         AppRegex=f"^prn:{portfolio}:{app}:.*:.*$",
         Zone=zone_data.Zone,
