@@ -6,20 +6,18 @@ import core_framework as util
 
 import core_helper.aws as aws
 
-from core_db.event import EventModelFactory
-from core_db.item import ItemModelFactory
-from core_db.registry.client import ClientFacts, ClientFactsFactory
+from core_db.registry.client import ClientFactsModel, ClientFactsFactory
 from core_db.registry.portfolio import (
-    PortfolioFacts,
+    PortfolioFactsModel,
     PortfolioFactsFactory,
     ContactFacts,
     ApproverFacts,
     ProjectFacts,
     OwnerFacts,
 )
-from core_db.registry.app import AppFacts, AppFactsFactory
+from core_db.registry.app import AppFactsModel, AppFactsFactory
 from core_db.registry.zone import (
-    ZoneFacts,
+    ZoneFactsModel,
     ZoneFactsFactory,
     AccountFacts,
     RegionFacts,
@@ -28,52 +26,7 @@ from core_db.registry.zone import (
     ProxyFacts,
 )
 
-
-def bootstrap_dynamo():
-
-    # see environment variables in .env
-    host = util.get_dynamodb_host()
-
-    assert host == "http://localhost:8000", "DYNAMODB_HOST must be set to http://localhost:8000"
-
-    try:
-
-        client_name = util.get_client_name()
-
-        dynamodb = boto3.resource("dynamodb", endpoint_url=host)
-
-        tables = dynamodb.tables.all()
-        if tables:
-            # delete all tables
-            for table in tables:
-                logging.debug(f"Deleting table: {table.name}")
-                table.delete()
-                table.wait_until_not_exists()
-                logging.debug(f"Table {table.name} deleted successfully.")
-
-        ClientFacts = ClientFactsFactory.get_model(client_name)
-        ClientFacts.create_table(wait=True)
-
-        PortfolioFacts = PortfolioFactsFactory.get_model(client_name)
-        PortfolioFacts.create_table(wait=True)
-
-        AppFacts = AppFactsFactory.get_model(client_name)
-        AppFacts.create_table(wait=True)
-
-        ZoneFacts = ZoneFactsFactory.get_model(client_name)
-        ZoneFacts.create_table(wait=True)
-
-        ItemModel = ItemModelFactory.get_model(client_name)
-        ItemModel.create_table(wait=True)
-
-        EventModel = EventModelFactory.get_model(client_name)
-        EventModel.create_table(wait=True)
-
-    except Exception as e:
-        print(e)
-        assert False
-
-    return True
+from .bootstrap import *
 
 
 def get_organization() -> dict:
@@ -104,7 +57,7 @@ def get_organization() -> dict:
     return organization
 
 
-def get_client_data(organization: dict, arguments: dict) -> ClientFacts:
+def get_client_data(organization: dict, arguments: dict) -> ClientFactsModel:
 
     assert "client" in arguments
 
@@ -139,7 +92,7 @@ def get_client_data(organization: dict, arguments: dict) -> ClientFacts:
     return cf
 
 
-def get_portfolio_data(client_data: ClientFacts, arguments: dict) -> PortfolioFacts:
+def get_portfolio_data(client_data: ClientFactsModel, arguments: dict) -> PortfolioFactsModel:
 
     assert "portfolio" in arguments
 
@@ -171,7 +124,7 @@ def get_portfolio_data(client_data: ClientFacts, arguments: dict) -> PortfolioFa
     return portfolio
 
 
-def get_zone_data(client_data: ClientFacts, arguments: dict) -> ZoneFacts:
+def get_zone_data(client_data: ClientFactsModel, arguments: dict) -> ZoneFactsModel:
 
     automation_account_id = client_data.AutomationAccount
     automation_account_name = client_data.OrganizationName
@@ -249,7 +202,7 @@ def get_zone_data(client_data: ClientFacts, arguments: dict) -> ZoneFacts:
     return zone
 
 
-def get_app_data(portfolio_data: PortfolioFacts, zone_data: ZoneFacts, arguments: dict) -> AppFacts:
+def get_app_data(portfolio_data: PortfolioFactsModel, zone_data: ZoneFactsModel, arguments: dict) -> AppFactsModel:
 
     # The client/portfolio is where this BizApp that this Deployment is for.
     # The Zone is where this BizApp component will be deployed.
@@ -286,9 +239,9 @@ def initialize(arguments: dict):
 
     org_data = get_organization()
 
-    client_data: ClientFacts = get_client_data(org_data, arguments)
-    zone_data: ZoneFacts = get_zone_data(client_data, arguments)
-    portfolio_data: PortfolioFacts = get_portfolio_data(client_data, arguments)
-    app_data: AppFacts = get_app_data(portfolio_data, zone_data, arguments)
+    client_data: ClientFactsModel = get_client_data(org_data, arguments)
+    zone_data: ZoneFactsModel = get_zone_data(client_data, arguments)
+    portfolio_data: PortfolioFactsModel = get_portfolio_data(client_data, arguments)
+    app_data: AppFactsModel = get_app_data(portfolio_data, zone_data, arguments)
 
     return client_data, zone_data, portfolio_data, app_data
