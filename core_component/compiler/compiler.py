@@ -56,7 +56,9 @@ def compile_app_files(definitions: dict, context: dict) -> dict:
             # and core_component/application/kms/actions
             # We render these with the context facts.  Remeber the "CTX_CONTEXT" is "context"
             # in the pipeline compiler.
-            action_files = application_renderer.render_files(actions_path, render_context)
+            action_files = application_renderer.render_files(
+                actions_path, render_context
+            )
             application_actions = __combine_objects(application_actions, action_files)
 
             # Render application files.  Get the template files
@@ -139,15 +141,24 @@ def render_component(component_name: str, definitions: dict, context: dict) -> d
         userfiles_path = os.path.join(base_path, "userfiles")
 
         # Render actions
-        component_actions = consumable_renderer.render_files(actions_path, render_context)
+        component_actions = consumable_renderer.render_files(
+            actions_path, render_context
+        )
 
         # Render files
         component_files = consumable_renderer.render_files(files_path, render_context)
-        component_files = {("{}/{}".format(component_name, k)): v for k, v in component_files.items()}
+        component_files = {
+            ("{}/{}".format(component_name, k)): v for k, v in component_files.items()
+        }
 
         # Render userfiles
-        component_userfiles = consumable_renderer.render_files(userfiles_path, render_context)
-        component_userfiles = {("{}/userfiles/{}".format(component_name, k)): v for k, v in component_userfiles.items()}
+        component_userfiles = consumable_renderer.render_files(
+            userfiles_path, render_context
+        )
+        component_userfiles = {
+            ("{}/userfiles/{}".format(component_name, k)): v
+            for k, v in component_userfiles.items()
+        }
         component_files.update(component_userfiles)
 
         result = {

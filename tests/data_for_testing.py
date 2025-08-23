@@ -92,7 +92,9 @@ def get_client_data(organization: dict, arguments: dict) -> ClientFactsModel:
     return cf
 
 
-def get_portfolio_data(client_data: ClientFactsModel, arguments: dict) -> PortfolioFactsModel:
+def get_portfolio_data(
+    client_data: ClientFactsModel, arguments: dict
+) -> PortfolioFactsModel:
 
     assert "portfolio" in arguments
 
@@ -105,9 +107,17 @@ def get_portfolio_data(client_data: ClientFactsModel, arguments: dict) -> Portfo
         Client=client_data.Client,
         Portfolio=portfllio_name,
         Contacts=[ContactFacts(name="John Doe", email="john.doe@tmail.com")],
-        Approvers=[ApproverFacts(name="Jane Doe", email="john.doe@tmail.com", roles=["admin"], sequence=1)],
-        Project=ProjectFacts(name="my-project", description="my project description", code="MYPRJ"),
-        Bizapp=ProjectFacts(name="my-bizapp", description="my bizapp description", code="MYBIZ"),
+        Approvers=[
+            ApproverFacts(
+                name="Jane Doe", email="john.doe@tmail.com", roles=["admin"], sequence=1
+            )
+        ],
+        Project=ProjectFacts(
+            name="my-project", description="my project description", code="MYPRJ"
+        ),
+        Bizapp=ProjectFacts(
+            name="my-bizapp", description="my bizapp description", code="MYBIZ"
+        ),
         Owner=OwnerFacts(name="John Doe", email="john.doe@tmail.com"),
         Domain=f"my-app.{domain_name}",
         Tags={
@@ -165,14 +175,20 @@ def get_zone_data(client_data: ClientFactsModel, arguments: dict) -> ZoneFactsMo
                 ImageAliases={"imageid:latest": "ami-2342342342344"},
                 MinSuccessfulInstancesPercent=100,
                 SecurityAliases={
-                    "internet": [SecurityAliasFacts(Type="cidr", Value="0.0.0.0/0", Description="Internet CIDR")],
+                    "internet": [
+                        SecurityAliasFacts(
+                            Type="cidr", Value="0.0.0.0/0", Description="Internet CIDR"
+                        )
+                    ],
                     "intranet": [
                         SecurityAliasFacts(
                             Type="cidr",
                             Value="192.168.0.0/16",
                             Description="Global CIDR 1",
                         ),
-                        SecurityAliasFacts(Type="cidr", Value="10.0.0.0/8", Description="Global CIDR 2"),
+                        SecurityAliasFacts(
+                            Type="cidr", Value="10.0.0.0/8", Description="Global CIDR 2"
+                        ),
                     ],
                 },
                 SecurityGroupAliases={
@@ -202,7 +218,9 @@ def get_zone_data(client_data: ClientFactsModel, arguments: dict) -> ZoneFactsMo
     return zone
 
 
-def get_app_data(portfolio_data: PortfolioFactsModel, zone_data: ZoneFactsModel, arguments: dict) -> AppFactsModel:
+def get_app_data(
+    portfolio_data: PortfolioFactsModel, zone_data: ZoneFactsModel, arguments: dict
+) -> AppFactsModel:
 
     # The client/portfolio is where this BizApp that this Deployment is for.
     # The Zone is where this BizApp component will be deployed.

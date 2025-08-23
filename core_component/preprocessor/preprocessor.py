@@ -12,7 +12,9 @@ DEFINITION_FILE_PATTERN = r"components/[^/\\]+\.yaml$"
 VARS_FILE_PATTERN = r"vars/[^/\\]+\.yaml$"
 
 
-def render_component_defintitions(package_file_path: str, context: dict[str, Any]) -> dict[str, Any]:
+def render_component_defintitions(
+    package_file_path: str, context: dict[str, Any]
+) -> dict[str, Any]:
     """
     Load the component definitions from the provided zip file and render them
     with Jinja2 using the provided context.
@@ -52,12 +54,16 @@ def render_component_defintitions(package_file_path: str, context: dict[str, Any
             if isinstance(file_definitions, dict):
                 definitions.update(file_definitions)
             else:
-                raise RuntimeError("Invalid component definition file '{}'".format(filename))
+                raise RuntimeError(
+                    "Invalid component definition file '{}'".format(filename)
+                )
 
     return definitions
 
 
-def __select_branch_variables(branch: str, variables: dict[str, Any]) -> dict[str, Any]:  # noqa: C901
+def __select_branch_variables(
+    branch: str, variables: dict[str, Any]
+) -> dict[str, Any]:  # noqa: C901
     """
     Load default variables AND ALL variables sections that match the branch name.
 
@@ -110,26 +116,34 @@ def __select_branch_variables(branch: str, variables: dict[str, Any]) -> dict[st
 
         # Match by name
         if branch_pattern in ["_defaults", "_default", "defaults", "default", branch]:
-            util.deep_merge_in_place(result_variables, branch_variables, merge_lists=True)
+            util.deep_merge_in_place(
+                result_variables, branch_variables, merge_lists=True
+            )
             continue
 
         # Match by wildcard
         if branch_pattern.endswith("*"):
             branch_prefix = branch_pattern.rstrip("*")
             if branch.startswith(branch_prefix):
-                util.deep_merge_in_place(result_variables, branch_variables, merge_lists=True)
+                util.deep_merge_in_place(
+                    result_variables, branch_variables, merge_lists=True
+                )
                 continue
 
         # Match by regex pattern
         regex = branch_variables.get("match", None)
         if regex and re.match(regex, branch):
-            util.deep_merge_in_place(result_variables, branch_variables, merge_lists=True)
+            util.deep_merge_in_place(
+                result_variables, branch_variables, merge_lists=True
+            )
             continue
 
     return result_variables
 
 
-def load_user_variables(facts: dict[str, Any], package_file_path: str) -> dict[str, Any]:
+def load_user_variables(
+    facts: dict[str, Any], package_file_path: str
+) -> dict[str, Any]:
     """
     Load apps ``platform/vars/*.yaml`` from a zip file.
 
