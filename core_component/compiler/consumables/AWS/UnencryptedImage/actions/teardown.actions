@@ -26,7 +26,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/main/security-rules"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.security_rules_stack_name }}"
@@ -51,7 +51,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/main/resources"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/security-rules"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     ImageName: "{{ names.image_name }}"
@@ -78,7 +78,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/start"
     - "{{ context.ComponentPrn }}:action/teardown/main/resources"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.log_groups_stack_name }}"
@@ -104,7 +104,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/main/security-items"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/log-groups"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.security_items_stack_name }}"

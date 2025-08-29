@@ -7,7 +7,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/start"
   Condition: "{{ 'BakeInstance' in app[component_name].Configuration }} and ('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.security_rules_stack_name }}"
@@ -43,7 +43,7 @@
     - "{{ context.ComponentPrn }}:action/deploy/main/upload-context"
     - "{{ context.ComponentPrn }}:action/deploy/main/log-groups"
   Condition: "{{ 'BakeInstance' in app[component_name].Configuration }} and ('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.bake_stack_name }}"
@@ -79,7 +79,7 @@
     - "{{ context.ComponentPrn }}:action/deploy/main/base-security-rules"
     - "{{ context.ComponentPrn }}:action/deploy/main/resources"
   Condition: "{{ 'BakeInstance' in app[component_name].Configuration }} and ('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     ImageName: "{{ names.image_name }}"
     InstanceId: "{{ '{{' }} '{{ context.ComponentPrn }}:var/deploy/main/bake-instance/InstanceId' | lookup {{ '}}' }}"
@@ -109,7 +109,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/bake-image"
   Condition: "{{ 'BakeInstance' in app[component_name].Configuration }} and ('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.bake_stack_name }}"

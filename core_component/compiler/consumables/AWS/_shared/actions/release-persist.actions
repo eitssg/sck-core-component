@@ -21,7 +21,7 @@
   Label: "{{ context.ComponentPrn }}:action/release/main"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/release/start"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.release_stack_name }}"

@@ -7,7 +7,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/start"
   Condition: "{{ 'BuildInstance' in app[component_name].Configuration }} and ('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.security_rules_stack_name }}"
@@ -46,7 +46,7 @@
     - "{{ context.ComponentPrn }}:action/deploy/main/base-security-rules"
     - "{{ context.ComponentPrn }}:action/deploy/main/resources"
   Condition: "{{ 'BuildInstance' in app[component_name].Configuration }} and ('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.build_stack_name }}"
@@ -79,7 +79,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/build-instance"
   Condition: "{{ 'BuildInstance' in app[component_name].Configuration }} and ('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.build_stack_name }}"

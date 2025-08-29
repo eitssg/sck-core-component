@@ -6,7 +6,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/main/bake-stack"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/release-stack"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.bake_stack_name }}"
@@ -33,7 +33,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/resources"
   Condition: "'{{ context.ComponentPrn }}:var/teardown/main/resources/StackStatus' | lookup('') == 'DELETE_COMPLETE'"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     ImageName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/gather-facts/pointers/BaseStackName' | lookup('{{ names.base_stack_name }}') {{ '}}' }}"

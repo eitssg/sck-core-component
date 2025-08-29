@@ -10,7 +10,7 @@
     - "{{ context.ComponentPrn }}:action/teardown/main/build-stack"
     - "{{ context.ComponentPrn }}:action/teardown/main/resources"
   Condition: "'{{ context.ComponentPrn }}:var/teardown/main/resources/StackStatus' | lookup('') == 'DELETE_COMPLETE'"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/gather-facts/pointers/BaseStackName' | lookup('{{ names.base_stack_name }}') {{ '}}' }}-{{ names.log_groups_stack_suffix }}"

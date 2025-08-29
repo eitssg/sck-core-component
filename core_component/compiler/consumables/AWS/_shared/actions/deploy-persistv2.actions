@@ -22,7 +22,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/start"
   Condition: "{{ (enable_persistence | d(True)) and (app[component_name].Persist | d(False) == True) }}"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.release_stack_name }}"
@@ -47,7 +47,7 @@
   Label: "{{ context.ComponentPrn }}:action/deploy/gather-facts/persistence"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/gather-facts/release"
-  Params:
+  Spec:
     Variables:
       # If persist is true and there is a released stack - persist the released build, else do not persist the build
       Persist: "{{ '{{' }} ('{{ context.ComponentPrn }}:var/deploy/gather-facts/release/ResourcesStackName' | lookup('')) != '' {{ '}}' }}"
@@ -65,7 +65,7 @@
   Label: "{{ context.ComponentPrn }}:action/deploy/security-items"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/gather-facts"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.security_items_stack_name }}"
@@ -103,7 +103,7 @@
   Label: "{{ context.ComponentPrn }}:action/deploy/main/base-security-rules"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/start"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.security_rules_stack_name }}"
@@ -137,7 +137,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/start"
   Condition: "('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
-  Params:
+  Spec:
     Bucket: "{{ context.FilesBucketName }}"
     Region: "{{ context.FilesBucketRegion }}"
     Prefix: "{{ context.BuildFilesPrefix }}/{{ component_name }}/context"
@@ -165,7 +165,7 @@
     - "{{ context.ComponentPrn }}:action/deploy/main/base-security-rules"
     - "{{ context.ComponentPrn }}:action/deploy/main/upload-context"
   Condition: "('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.resources_stack_name }}"
@@ -203,7 +203,7 @@
   Label: "{{ context.ComponentPrn }}:action/deploy/main/security-rules"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/resources"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.security_rules_stack_name }}"
@@ -238,7 +238,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/resources"
   SaveOutputs: true
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.pointers_stack_name }}"

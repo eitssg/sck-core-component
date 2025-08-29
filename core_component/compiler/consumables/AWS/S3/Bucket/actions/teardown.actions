@@ -20,7 +20,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/pointers"
     - "{{ context.ComponentPrn }}:action/teardown/main/security-rules"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/gather-facts/pointers/ResourcesStackName' | lookup('{{ names.resources_stack_name }}') {{ '}}' }}"
@@ -50,7 +50,7 @@
   Before:
     - "{{ context.ComponentPrn }}:action/teardown/main/resources"
   Condition: "'{{ context.ComponentPrn }}:var/teardown/main/get-resource-references/NumReferences' | lookup == 0"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     BucketName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/gather-facts/pointers/BucketName' | lookup('{{ default_bucket_name }}') {{ '}}' }}"

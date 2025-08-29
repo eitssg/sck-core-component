@@ -25,7 +25,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/gather-facts/released-build"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/start"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.release_stack_name }}"
@@ -51,7 +51,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/gather-facts/buckets"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/start"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ bucket_stack_name }}"
@@ -83,7 +83,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/gather-facts"
   Condition: "('{{ context.ComponentPrn }}:var/teardown/gather-facts/released-build/Build' | lookup('none')) == '{{ context.Build }}'"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.release_stack_name }}"
@@ -109,7 +109,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/main/delete-bucket-loader"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/gather-facts"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ loader_stack_name }}"
@@ -135,7 +135,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/main/pointers"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/release-stack"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.pointers_stack_name }}"
@@ -161,7 +161,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/main/cloudfront"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/pointers"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ cloudfront_stack_name }}"
@@ -189,7 +189,7 @@
   Condition: "'{{ context.ComponentPrn }}:var/teardown/main/cloudfront/StackStatus' | lookup('') == 'DELETE_COMPLETE'"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/cloudfront"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     BucketName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/gather-facts/buckets/FileBucketName' | lookup('') {{ '}}' }}"
@@ -216,7 +216,7 @@
   Condition: "'{{ context.ComponentPrn }}:var/teardown/main/cloudfront/StackStatus' | lookup('') == 'DELETE_COMPLETE'"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/cloudfront"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     BucketName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/gather-facts/buckets/LogBucketName' | lookup('') {{ '}}' }}"
@@ -243,7 +243,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/empty-file-bucket"
     - "{{ context.ComponentPrn }}:action/teardown/main/empty-log-bucket"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ bucket_stack_name }}"
@@ -275,7 +275,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/security-items"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.security_items_stack_name }}"

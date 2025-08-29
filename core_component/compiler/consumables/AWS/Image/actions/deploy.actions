@@ -22,7 +22,7 @@
   Label: "{{ context.ComponentPrn }}:action/deploy/gather-facts/persistence"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/start"
-  Params:
+  Spec:
     Variables:
       # If persist is true and there is a released stack - persist the released build, else do not persist the build
       Persist: "{{ '{{' }} ('{{ context.ComponentPrn }}:var/deploy/gather-facts/release/ResourcesStackName' | lookup('')) != '' {{ '}}' }}"
@@ -32,7 +32,7 @@
   Label: "{{ context.ComponentPrn }}:action/deploy/security-items"
   DependsOn:
     - "{{ context.BuildPrn }}:*:action/deploy/gather-facts"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.security_items_stack_name }}"
@@ -70,7 +70,7 @@
   Label: "{{ context.ComponentPrn }}:action/deploy/main/base-security-rules"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/start"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.security_rules_stack_name }}"
@@ -104,7 +104,7 @@
   Label: "{{ context.ComponentPrn }}:action/deploy/main/upload-context"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/start"
-  Params:
+  Spec:
     Bucket: "{{ context.FilesBucketName }}"
     Region: "{{ context.FilesBucketRegion }}"
     Prefix: "{{ context.BuildFilesPrefix }}/{{ component_name }}/context"
@@ -132,7 +132,7 @@
     - "{{ context.ComponentPrn }}:action/deploy/main/start"
   Before:
     - "{{ context.ComponentPrn }}:action/deploy/main/resources"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.log_groups_stack_name }}"
@@ -164,7 +164,7 @@
     - "{{ context.ComponentPrn }}:action/deploy/main/upload-context"
     - "{{ context.ComponentPrn }}:action/deploy/main/log-groups"
   Condition: "{{ 'BakeInstance' in app[component_name].Configuration }}"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.bake_stack_name }}"
@@ -197,7 +197,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/resources"
   Condition: "{{ 'BakeInstance' in app[component_name].Configuration }}"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     ImageName: "{{ names.image_name }}"
     InstanceId: "{{ '{{' }} '{{ context.ComponentPrn }}:var/deploy/main/resources/InstanceId' | lookup {{ '}}' }}"
@@ -227,7 +227,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/bake-image"
   Condition: "{{ 'BakeInstance' in app[component_name].Configuration }}"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     DestinationImageName: "{{ names.image_name }}-encrypted"
     ImageName: "{{ names.image_name }}"
@@ -258,7 +258,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/bake-encrypted-image"
   Condition: "{{ 'BakeInstance' in app[component_name].Configuration }}"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     ImageName: "{{ names.image_name }}"
     Region: "{{ context.AwsRegion }}"
@@ -287,7 +287,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/bake-image"
   Condition: "{{ 'BakeInstance' in app[component_name].Configuration }}"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.bake_stack_name }}"

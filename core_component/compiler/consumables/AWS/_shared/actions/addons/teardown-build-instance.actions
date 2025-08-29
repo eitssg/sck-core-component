@@ -6,7 +6,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/main/build-stack"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/release-stack"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.build_stack_name }}"

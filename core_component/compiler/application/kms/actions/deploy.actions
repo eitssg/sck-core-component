@@ -8,7 +8,7 @@
   DependsOn:
     - "{{ context.BuildPrn }}:action/pre-deploy/status-starting"
   SaveOutputs: true
-  Params:
+  Spec:
     Account: "{{ context.Kms.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ kms_stack_name }}"
@@ -44,7 +44,7 @@
   DependsOn:
     - "{{ context.BuildPrn }}:action/pre-deploy/kms"
   Condition: "{{ context.Kms.DelegateAwsAccountIds | ensure_list | length > 0 }}"
-  Params:
+  Spec:
     Account: "{{ account }}"
     Region: "{{ context.AwsRegion }}"
     IgnoreFailedGrants: true
@@ -88,7 +88,7 @@
   DependsOn:
     - "{{ context.BuildPrn }}:action/pre-deploy/kms-grants"
   Condition: "{{ 'SoeKmsArn' in context }}"
-  Params:
+  Spec:
     Account: "{{ account }}" # Use the account which owns the service linked roles, not the compliance account!
     Region: "{{ context.AwsRegion }}"
     IgnoreFailedGrants: true

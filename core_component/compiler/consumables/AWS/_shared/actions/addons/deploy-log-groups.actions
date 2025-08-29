@@ -9,7 +9,7 @@
   Before:
     - "{{ context.ComponentPrn }}:action/deploy/main/resources"
   Condition: "('{{ context.ComponentPrn }}:var/deploy/gather-facts/persistence/Persist' | lookup) == 'False'"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.log_groups_stack_name }}"

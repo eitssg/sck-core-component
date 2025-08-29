@@ -30,7 +30,7 @@
   Label: "{{ context.ComponentPrn }}:action/deploy/security-items"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/gather-facts"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.security_items_stack_name }}"
@@ -69,7 +69,7 @@
   Label: "{{ context.ComponentPrn }}:action/deploy/main/buckets"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/start"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ bucket_stack_name }}"
@@ -101,7 +101,7 @@
   Label: "{{ context.ComponentPrn }}:action/deploy/main/bucket-loader"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/buckets"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ loader_stack_name }}"
@@ -134,7 +134,7 @@
   Label: "{{ context.ComponentPrn }}:action/deploy/main/delete-bucket-loader"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/bucket-loader"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ loader_stack_name }}"
@@ -161,7 +161,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/buckets"
     - "{{ context.ComponentPrn }}:action/deploy/main/bucket-loader"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ cloudfront_stack_name }}"
@@ -196,7 +196,7 @@
   Label: "{{ context.ComponentPrn }}:action/deploy/main/cloudfront-invalidation"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/cloudfront"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     DistributionId: "{{ '{{' }} '{{ context.ComponentPrn }}:var/deploy/main/cloudfront/DistributionId' | lookup {{ '}}' }}"
@@ -225,7 +225,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/deploy/main/cloudfront"
   SaveOutputs: true
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.pointers_stack_name }}"

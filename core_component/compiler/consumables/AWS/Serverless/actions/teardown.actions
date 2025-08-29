@@ -9,7 +9,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/pointers"
     - "{{ context.ComponentPrn }}:action/teardown/main/security-rules"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.resources_stack_name }}"
@@ -37,7 +37,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/get-resource-references"
   Condition: "'{{ context.ComponentPrn }}:var/teardown/main/get-resource-references/NumReferences' | lookup == 0"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.security_items_stack_name }}"
@@ -65,7 +65,7 @@
     - "{{ context.ComponentPrn }}:action/teardown/main/get-resource-references"
     - "{{ context.ComponentPrn }}:action/teardown/main/get-security-outputs"
   Condition: "'{{ context.ComponentPrn }}:var/teardown/main/get-resource-references/NumReferences' | lookup == 0"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     SecurityGroupId: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/main/get-security-outputs/SecurityGroupId' | lookup('') {{ '}}' }}"

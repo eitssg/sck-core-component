@@ -10,7 +10,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/main/components/gather-facts/resources"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/components/start"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.resources_stack_name }}"
@@ -33,7 +33,7 @@
 
 - Type: AWS::UnprotectELB
   Label: "{{ context.ComponentPrn }}:action/teardown/main/components/remove-protection"
-  Params:
+  Spec:
       Account: "{{ context.AwsAccountId }}"
       Region: "{{ context.AwsRegion }}"
       LoadBalancer: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/main/components/gather-facts/resources/LoadBalancerName' | lookup('none') {{ '}}' }}"

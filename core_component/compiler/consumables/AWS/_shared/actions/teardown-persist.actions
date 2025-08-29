@@ -21,7 +21,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/gather-facts/released-build"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/start"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.release_stack_name }}"
@@ -47,7 +47,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/gather-facts/pointers"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/start"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.pointers_stack_name }}"
@@ -79,7 +79,7 @@
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/gather-facts"
   Condition: "('{{ context.ComponentPrn }}:var/teardown/gather-facts/released-build/Build' | lookup('none')) == '{{ context.Build }}'"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.release_stack_name }}"
@@ -105,7 +105,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/main/pointers"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/release-stack"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.pointers_stack_name }}"
@@ -131,7 +131,7 @@
   Label: "{{ context.ComponentPrn }}:action/teardown/main/security-rules"
   DependsOn:
     - "{{ context.ComponentPrn }}:action/teardown/main/release-stack"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.security_rules_stack_name }}"
@@ -160,7 +160,7 @@
     - "{{ context.ComponentPrn }}:action/teardown/main/release-stack"
     - "{{ context.ComponentPrn }}:action/teardown/main/security-rules"
     - "{{ context.ComponentPrn }}:action/teardown/main/pointers"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ '{{' }} '{{ context.ComponentPrn }}:var/teardown/gather-facts/pointers/ResourcesStackName' | lookup('{{ names.resources_stack_name }}') {{ '}}' }}"
@@ -193,7 +193,7 @@
   DependsOn:
     - "{{ context.BuildPrn }}:*:action/teardown/main/security-rules"
     - "{{ context.ComponentPrn }}:action/teardown/main"
-  Params:
+  Spec:
     Account: "{{ context.AwsAccountId }}"
     Region: "{{ context.AwsRegion }}"
     StackName: "{{ names.security_items_stack_name }}"
