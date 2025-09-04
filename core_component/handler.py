@@ -50,6 +50,7 @@ def handler(event: dict, context: dict | None) -> dict:
     :rtype: dict
     """
     task_payload = TaskPayload(**event)
+    log.set_correlation_id(task_payload.correlation_id)
 
     # Update config (global)
     # os.environ["OUTPUT_PATH"] = package.get("OutputPath", "")
@@ -87,14 +88,10 @@ def execute(task_payload: TaskPayload) -> dict:
     try:
         log.info("Starting component compilation")
 
-        deployment_details = (
-            task_payload.deployment_details
-        )  # Fixed: lowercase attribute
+        deployment_details = task_payload.deployment_details  # Fixed: lowercase attribute
 
         # Register branch and build with the API
-        if (
-            not deployment_details.branch or not deployment_details.build
-        ):  # Fixed: lowercase attributes
+        if not deployment_details.branch or not deployment_details.build:  # Fixed: lowercase attributes
             return {
                 "Status": "error",
                 "Message": "Branch and Build details are required",
@@ -103,12 +100,8 @@ def execute(task_payload: TaskPayload) -> dict:
         branch_prn = deployment_details.get_branch_prn()
         build_prn = deployment_details.get_build_prn()
 
-        register_item(
-            branch_prn, deployment_details.branch
-        )  # Fixed: lowercase attribute
-        register_item(
-            build_prn, deployment_details.build, status=COMPILE_IN_PROGRESS
-        )  # Fixed: lowercase attribute
+        register_item(branch_prn, deployment_details.branch)  # Fixed: lowercase attribute
+        register_item(build_prn, deployment_details.build, status=COMPILE_IN_PROGRESS)  # Fixed: lowercase attribute
 
         facts = get_facts(deployment_details)
 
@@ -134,9 +127,7 @@ def execute(task_payload: TaskPayload) -> dict:
 
     except CompileException as e:
         try:
-            build_prn = (
-                task_payload.deployment_details.get_build_prn()
-            )  # Fixed: added variable assignment
+            build_prn = task_payload.deployment_details.get_build_prn()  # Fixed: added variable assignment
             update_status(build_prn, COMPILE_FAILED, str(e.message))
         except Exception:
             pass
@@ -151,9 +142,7 @@ def execute(task_payload: TaskPayload) -> dict:
 
     except Exception as e:
         try:
-            build_prn = (
-                task_payload.deployment_details.get_build_prn()
-            )  # Fixed: added variable assignment
+            build_prn = task_payload.deployment_details.get_build_prn()  # Fixed: added variable assignment
             update_status(build_prn, COMPILE_FAILED, str(e))
         except Exception:
             pass
@@ -177,9 +166,7 @@ def execute(task_payload: TaskPayload) -> dict:
                 log.warning(f"Failed to clean up temporary file: {cleanup_error}")
 
 
-def __create_context(
-    task_payload: TaskPayload, facts: dict[str, Any], package_file_path: str
-) -> dict:
+def __create_context(task_payload: TaskPayload, facts: dict[str, Any], package_file_path: str) -> dict:
     """
     Create Jinja2 context from task payload, facts, and user variables.
 
@@ -214,13 +201,9 @@ def __create_context(
         return context
 
     except Exception as e:
-        build_prn = (
-            task_payload.deployment_details.get_build_prn()
-        )  # Fixed: lowercase attribute
+        build_prn = task_payload.deployment_details.get_build_prn()  # Fixed: lowercase attribute
 
-        update_status(
-            build_prn, COMPILE_FAILED, "Error processing component definition files"
-        )
+        update_status(build_prn, COMPILE_FAILED, "Error processing component definition files")
 
         exception_message = str(e)
         exception_message = re.sub(r" +", r" ", exception_message)
@@ -261,18 +244,12 @@ def __register_components(task_payload: TaskPayload, definitions: dict, context:
             continue
 
         component_prn = "{}:{}".format(build_prn, component_name)
-        image_alias, image_id = __get_component_image(
-            definition, context[CTX_CONTEXT]["ImageAliases"]
-        )
+        image_alias, image_id = __get_component_image(definition, context[CTX_CONTEXT]["ImageAliases"])
 
         log.debug("Registering component with the database:", details=definition)
 
         if image_alias:
-            log.debug(
-                "For component '{}', found image_alias '{}', image_id '{}'.".format(
-                    component_name, image_alias, image_id
-                )
-            )
+            log.debug("For component '{}', found image_alias '{}', image_id '{}'.".format(component_name, image_alias, image_id))
 
         register_item(
             component_prn,
@@ -283,9 +260,7 @@ def __register_components(task_payload: TaskPayload, definitions: dict, context:
         )
 
 
-def __compile_components(
-    task_payload: TaskPayload, definitions: dict, context: dict
-) -> dict:
+def __compile_components(task_payload: TaskPayload, definitions: dict, context: dict) -> dict:
     """
     Compile all component definitions.
 
@@ -334,12 +309,8 @@ def __compile_components(
         definitions=definitions,
         context=context,
     )
-    failed_components = {
-        k: v for k, v in compile_results.items() if v["Status"] == "error"
-    }
-    successful_components = {
-        k: v for k, v in compile_results.items() if v["Status"] == "ok"
-    }
+    failed_components = {k: v for k, v in compile_results.items() if v["Status"] == "error"}
+    successful_components = {k: v for k, v in compile_results.items() if v["Status"] == "ok"}
 
     log.debug("Updating build status")
 
@@ -373,9 +344,7 @@ def __compile_components(
         __upload_compiled_files(task_payload, compiled_files)
 
     except Exception as e:
-        log.error(
-            "Error while uploading compiled components", details={"Error": str(e)}
-        )
+        log.error("Error while uploading compiled components", details={"Error": str(e)})
 
         update_status(build_prn, COMPILE_FAILED)
 
@@ -435,8 +404,7 @@ def __return(
     :rtype: dict
     """
     errors = validation_errors + [
-        {"Component": k, "Details": v["Details"], "Message": v["Message"]}
-        for k, v in failed_components.items()
+        {"Component": k, "Details": v["Details"], "Message": v["Message"]} for k, v in failed_components.items()
     ]
     errors = sorted(errors, key=lambda k: k["Component"])
     warnings = sorted(validation_warnings, key=lambda k: k["Component"])
@@ -492,9 +460,7 @@ def __download_package(package: PackageDetails) -> str:
 
     try:
         # Download directly to temp file
-        bucket.download_file(
-            Key=package.key, Filename=temp_file_path, ExtraArgs=extra_args
-        )
+        bucket.download_file(Key=package.key, Filename=temp_file_path, ExtraArgs=extra_args)
 
         log.debug(f"Package downloaded to temporary file: {temp_file_path}")
         return temp_file_path
@@ -533,13 +499,9 @@ def __upload_compiled_files(task_payload: TaskPayload, files: dict[str, str]) ->
     # Upload component files to storage
     for file_name, body in files.items():
         if "/userfiles/" in file_name:
-            upload_result = __upload_object(
-                bucket, bucket_region, s3_files_prefix, file_name, body
-            )
+            upload_result = __upload_object(bucket, bucket_region, s3_files_prefix, file_name, body)
         else:
-            upload_result = __upload_object(
-                bucket, bucket_region, s3_artefacts_prefix, file_name, body
-            )
+            upload_result = __upload_object(bucket, bucket_region, s3_artefacts_prefix, file_name, body)
 
         # save the result of the upload
         result[file_name] = upload_result  # Fixed: use upload_result instead of result
@@ -548,9 +510,7 @@ def __upload_compiled_files(task_payload: TaskPayload, files: dict[str, str]) ->
     return result
 
 
-def __get_component_image(
-    definition: dict, image_aliases: dict
-) -> tuple[str | None, str | None]:
+def __get_component_image(definition: dict, image_aliases: dict) -> tuple[str | None, str | None]:
     """
     Certain components have definition.Configuration.*.Properties.ImageId.Fn::Pipeline::ImageId.Name defined.
     Example: Autoscale|Cluster=BakeInstance|LaunchConfiguration, Instance
@@ -606,9 +566,7 @@ def __validate_definitions(build_prn: str, definitions: dict, context: dict) -> 
         definition = definitions[component_name]
 
         # Validate the component
-        update_status(
-            component_prn, COMPILE_IN_PROGRESS, "Validating component definition"
-        )
+        update_status(component_prn, COMPILE_IN_PROGRESS, "Validating component definition")
 
         result = validate_component(component_name, definitions, context)
 
@@ -628,9 +586,7 @@ def __validate_definitions(build_prn: str, definitions: dict, context: dict) -> 
                 },
             )
         elif warnings:
-            message = "Component '{}' has one or more validation warnings".format(
-                component_name
-            )
+            message = "Component '{}' has one or more validation warnings".format(component_name)
             log.warn(
                 message,
                 details={"ValidationErrors": errors, "ValidationWarnings": warnings},
@@ -662,9 +618,7 @@ def __validate_definitions(build_prn: str, definitions: dict, context: dict) -> 
             )
         else:
             # No warnings or errors
-            update_status(
-                component_prn, COMPILE_IN_PROGRESS, "Component validation completed"
-            )
+            update_status(component_prn, COMPILE_IN_PROGRESS, "Component validation completed")
 
     # Cancel remaining compilations if validation is enforced and there are any validation errors
     if util.is_enforce_validation() and any_errors:
