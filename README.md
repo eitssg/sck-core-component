@@ -2,6 +2,8 @@
 
 CloudFormation and Actions generator.  Application Templates.
 
+> Copilot: See [local instructions](.github/copilot-instructions.md) and [root guidance](../../.github/copilot-instructions.md) for precedence and module rules.
+
 ## Table of Contents
 
 - [Overview](#core-automation-platform)
