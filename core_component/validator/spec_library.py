@@ -70,6 +70,10 @@ class SpecLibrary:
             util.deep_merge_in_place(self.specs, spec)
 
     def __compile(self, spec_key: str, spec: dict, layer=0) -> dict:  # noqa: C901
+
+        def should_merge(k: str, dest, src) -> bool:
+            return k == self.__spec_key("Type") or not k.startswith(self.meta_prefix)
+
         spec = util.deep_copy(spec)
 
         if layer > 15:
@@ -144,8 +148,7 @@ class SpecLibrary:
                 util.deep_merge_in_place(
                     spec[child_spec_key],
                     compiled,
-                    should_merge=lambda k: k == self.__spec_key("Type")
-                    or not k.startswith(self.meta_prefix),
+                    should_merge=should_merge,
                 )
         elif self.__is_primitive_type(spec_type):
             # Nothing to compile for primitive types
@@ -169,8 +172,7 @@ class SpecLibrary:
             util.deep_merge_in_place(
                 spec,
                 custom_type_spec,
-                should_merge=lambda k: k == self.__spec_key("Type")
-                or not k.startswith(self.meta_prefix),
+                should_merge=should_merge,
             )
 
             # Re-compile spec since type would have changed from the merge
