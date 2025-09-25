@@ -5,7 +5,7 @@ build-backend = "poetry_dynamic_versioning.backend"
 [tool.poetry]
 name = "sck-core-component"
 description = "Core-Automation Component Compiler"
-version = "0.1.1"
+version = "0.1.2-pre.2+7bd6f58"
 license = "GPL-3.0-only"
 readme = "README.md"
 authors = ["James Barwick <jbarwick@me.com>"]
@@ -57,3 +57,9 @@ black = "^24.10.0"
 pylance = "^0.21.0"
 boto3-stubs = ">=1.40.11"
 types-jmespath = "^1.0.2.20240106"
+
+[tool.black]
+line-length = 132
+target-version = ["py313"]
+skip-string-normalization = true
+extend-exclude = ''' /(.venv|build|dist|htmlcov)/ '''
