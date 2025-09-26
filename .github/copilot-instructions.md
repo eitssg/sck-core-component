@@ -4,6 +4,16 @@
 - Precedence: Local file first; then root instructions in `../../.github/`.
 - Backend conventions: Reuse standards in `../sck-core-ui/docs/backend-code-style.md`.
 
+## RST Documentation Requirements
+**MANDATORY**: All docstrings must be RST-compatible for Sphinx documentation generation:
+- Use proper RST syntax: `::` for code blocks (not markdown triple backticks)
+- Code blocks must be indented 4+ spaces relative to preceding text
+- Add blank line after `::` before code content
+- Bullet lists must end with blank line before continuing text
+- Use RST field lists for parameters: `:param name: description`
+- Use RST directives: `.. note::`, `.. warning::`, etc.
+- Test docstrings with Sphinx build - code is source of truth, not docstrings
+
 ## Contradiction Detection
 - Compare with backend standards and root precedence.
 - If conflict, warn with quote + source, offer options, give example.
