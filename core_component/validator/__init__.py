@@ -31,9 +31,7 @@ def validate_component(component_name, definitions, context):
                     {
                         "Component": component_name,
                         "Details": {"Key": component_name},
-                        "Message": "Validation error - Unknown consumable '{}'".format(
-                            component_type
-                        ),
+                        "Message": "Validation error - Unknown consumable '{}'".format(component_type),
                     }
                 ],
                 "ValidationWarnings": [],
@@ -62,9 +60,7 @@ def validate_specs() -> list:
     # Get the current folder of this script
     script_dir = os.path.dirname(os.path.realpath(__file__))
 
-    spec_spec_library = SpecLibrary(
-        spec_file_globs=[os.path.join(script_dir, "specs", "*.yaml")], meta_prefix="__"
-    )
+    spec_spec_library = SpecLibrary(spec_file_globs=[os.path.join(script_dir, "specs", "*.yaml")], meta_prefix="__")
     errors: list = []
     specs = spec_library.get_specs()
 

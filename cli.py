@@ -14,28 +14,20 @@ def _get_args():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("-s", "--scope", help="Scope name", required=False)
-    parser.add_argument(
-        "-c", "--client", help="Client name for selecting config", required=True
-    )
+    parser.add_argument("-c", "--client", help="Client name for selecting config", required=True)
     parser.add_argument("-p", "--portfolio", help="Portfolio name", required=True)
     parser.add_argument("-a", "--app", help="Application name", required=True)
     parser.add_argument("-b", "--branch", help="Branch name", required=True)
     parser.add_argument("-n", "--build", help="Build number", required=True)
-    parser.add_argument(
-        "--mode", default=None, help="Mode of operation (default|local)"
-    )
-    parser.add_argument(
-        "--compile-mode", default=None, help="Compile type (full|validate)"
-    )
+    parser.add_argument("--mode", default=None, help="Mode of operation (default|local)")
+    parser.add_argument("--compile-mode", default=None, help="Compile type (full|validate)")
     parser.add_argument(
         "--aws-profile",
         help="Select which profile to use from your ~/.aws/credentials file.",
     )
     parser.add_argument("--app-path", help="Local app path (local mode only)")
     parser.add_argument("--facts-path", help="Facts path (local mode only)")
-    parser.add_argument(
-        "--bucket-region", default="ap-southeast-1", help="S3 Bucket Region"
-    )
+    parser.add_argument("--bucket-region", default="ap-southeast-1", help="S3 Bucket Region")
     parser.add_argument("--bucket-name", default=None, help="S3 Bucket Name")
     parser.add_argument("--s3-facts-prefix", default=None, help="S3 facts prefix")
 
@@ -43,9 +35,7 @@ def _get_args():
 
     scope_prefix = "{}-".format(args.scope) if args.scope is not None else ""
     if args.bucket_name is None:
-        args.bucket_name = "{}{}-core-automation-{}".format(
-            scope_prefix, args.client, args.bucket_region
-        )
+        args.bucket_name = "{}{}-core-automation-{}".format(scope_prefix, args.client, args.bucket_region)
 
     return args
 
@@ -73,16 +63,12 @@ def run(args):
         print("Setting AWS_PROFILE={}".format(args.aws_profile))
         os.environ["AWS_PROFILE"] = args.aws_profile
 
-    branch_short_name = re.sub(r"[^a-z0-9\\-]", "-", args.branch.lower())[0:20].rstrip(
-        "-"
-    )
+    branch_short_name = re.sub(r"[^a-z0-9\\-]", "-", args.branch.lower())[0:20].rstrip("-")
 
     package = {
         "BucketRegion": args.bucket_region,
         "BucketName": args.bucket_name,
-        "Key": "packages/{}/{}/{}/{}/package.zip".format(
-            args.portfolio, args.app, branch_short_name, args.build
-        ),
+        "Key": "packages/{}/{}/{}/{}/package.zip".format(args.portfolio, args.app, branch_short_name, args.build),
         "VersionId": None,
     }
 
@@ -95,22 +81,16 @@ def run(args):
         # Add params to the Package payload for the lambda.
         package["Mode"] = args.mode
         package["CompileMode"] = args.compile_mode
-        package["PlatformPath"] = os.path.abspath(
-            os.path.join(args.data_path, "platform")
-        )
+        package["PlatformPath"] = os.path.abspath(os.path.join(args.data_path, "platform"))
         # Verify that data_path is a valid application location (i.e. developer mistake).developer
         if not os.path.exists(package["PlatformPath"]):
-            raise ValueError(
-                "PlatformPath must exist, i.e. app-path must point to an actual app folder."
-            )
+            raise ValueError("PlatformPath must exist, i.e. app-path must point to an actual app folder.")
         package["OutputPath"] = os.path.join(args.data_path, "_compiled")
 
     # Emulated payload for local lambda execution.
     event = {
         "Package": package,
-        "Identity": "prn:{}:{}:{}:{}".format(
-            args.portfolio, args.app, branch_short_name, args.build
-        ),
+        "Identity": "prn:{}:{}:{}:{}".format(args.portfolio, args.app, branch_short_name, args.build),
         "DeploymentDetails": {
             "Portfolio": args.portfolio,
             "App": args.app,

@@ -24,9 +24,7 @@ def _get_args():
     )
     parser.add_argument("-a", "--aws-logs", required=True, help="awslogs home")
     parser.add_argument("-r", "--region", help="Region")
-    parser.add_argument(
-        "-o", "--output", help="config.json will be written into this output path"
-    )
+    parser.add_argument("-o", "--output", help="config.json will be written into this output path")
     return parser.parse_args()
 
 

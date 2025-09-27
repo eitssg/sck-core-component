@@ -9,13 +9,9 @@ spec_library = SpecLibrary()
 
 def get_specs_to_validate() -> list:
 
-    script_dir = os.path.realpath(
-        os.path.sep.join(["core_component", "validator", "specs"])
-    )
+    script_dir = os.path.realpath(os.path.sep.join(["core_component", "validator", "specs"]))
 
-    spec_spec_library = SpecLibrary(
-        spec_file_globs=[os.path.join(script_dir, "*.yaml")], meta_prefix="__"
-    )
+    spec_spec_library = SpecLibrary(spec_file_globs=[os.path.join(script_dir, "*.yaml")], meta_prefix="__")
     specs = spec_library.get_specs()
 
     spec_spec = spec_spec_library.get_spec("Spec")

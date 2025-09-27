@@ -109,9 +109,7 @@ def upload_package(task_payload: TaskPayload, package_package: str) -> PackageDe
 
     state_details = task_payload.Package
 
-    bucket = MagicS3Client(Region=state_details.BucketRegion).Bucket(
-        state_details.BucketName
-    )
+    bucket = MagicS3Client(Region=state_details.BucketRegion).Bucket(state_details.BucketName)
 
     try:
         # package.zip should be small.  The whole thing is read into memory.  a few MB is ok.  but 100MB is not.
@@ -147,9 +145,7 @@ def facts(task_payload: TaskPayload, arguments: dict):
     return facts
 
 
-def test_run_pl_compile(
-    task_payload: TaskPayload, upload_package: PackageDetails, facts: dict
-):
+def test_run_pl_compile(task_payload: TaskPayload, upload_package: PackageDetails, facts: dict):
 
     assert isinstance(task_payload, TaskPayload)
     assert isinstance(upload_package, PackageDetails)
