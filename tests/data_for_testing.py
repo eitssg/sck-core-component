@@ -1,7 +1,3 @@
-# use boto3 to connect to DynamoDB, get a list of all tables, then delete all tables
-import boto3
-
-import core_logging as logging
 import core_framework as util
 
 import core_helper.aws as aws
@@ -26,7 +22,7 @@ from core_db.registry.zone import (
     ProxyFacts,
 )
 
-from .bootstrap import *
+client = util.get_client() or "core"
 
 
 def get_organization() -> dict:
@@ -58,6 +54,7 @@ def get_organization() -> dict:
 
 
 def get_client_data(organization: dict, arguments: dict) -> ClientFactsModel:
+    global client
 
     assert "client" in arguments
 
@@ -68,7 +65,7 @@ def get_client_data(organization: dict, arguments: dict) -> ClientFactsModel:
 
     aws_account_id = organization["account_id"]
 
-    client_model = ClientFactsFactory.get_model(client)
+    client_model = ClientFactsFactory.get_model()
     cf = client_model(
         client=client,
         domain="my-domain.com",
@@ -96,14 +93,13 @@ def get_portfolio_data(client_data: ClientFactsModel, arguments: dict) -> Portfo
 
     assert "portfolio" in arguments
 
-    portfllio_name = arguments["portfolio"]
+    portfolio_name = arguments["portfolio"]
 
-    domain_name = client_data.Domain
+    domain_name = client_data.domain
 
-    portfolio_model = PortfolioFactsFactory.get_model(client_data.Client)
+    portfolio_model = PortfolioFactsFactory.get_model(client)
     portfolio = portfolio_model(
-        Client=client_data.Client,
-        Portfolio=portfllio_name,
+        Portfolio=portfolio_name,
         Contacts=[ContactFacts(name="John Doe", email="john.doe@tmail.com")],
         Approvers=[ApproverFacts(name="Jane Doe", email="john.doe@tmail.com", roles=["admin"], sequence=1)],
         Project=ProjectFacts(name="my-project", description="my project description", code="MYPRJ"),
@@ -126,15 +122,15 @@ def get_portfolio_data(client_data: ClientFactsModel, arguments: dict) -> Portfo
 
 def get_zone_data(client_data: ClientFactsModel, arguments: dict) -> ZoneFactsModel:
 
-    automation_account_id = client_data.AutomationAccount
-    automation_account_name = client_data.OrganizationName
+    automation_account_id = client_data.automation_account
+    automation_account_name = client_data.organization_name
 
-    zone_model = ZoneFactsFactory.get_model(client_data.Client)
+    zone_model = ZoneFactsFactory.get_model(client_data.client)
     zone = zone_model(
-        Client=client_data.Client,
+        Client=client_data.client,
         Zone="my-automation-service-zone",
         AccountFacts=AccountFacts(
-            Client=client_data.Client,
+            Client=client_data.client,
             AwsAccountId=automation_account_id,
             OrganizationalUnit="PrimaryUnit",
             AccountName=automation_account_name,
@@ -207,17 +203,15 @@ def get_app_data(portfolio_data: PortfolioFactsModel, zone_data: ZoneFactsModel,
     # The client/portfolio is where this BizApp that this Deployment is for.
     # The Zone is where this BizApp component will be deployed.
 
-    client = portfolio_data.Client
-    portfolio = portfolio_data.Portfolio
+    portfolio = portfolio_data.portfolio
     app = arguments["app"]
 
-    client_portfolio_key = f"{client}:{portfolio}"
-
-    apps_model = AppFactsFactory.get_model(client_portfolio_key)
+    apps_model = AppFactsFactory.get_model(client)
     app = apps_model(
-        ClientPortfolio=client_portfolio_key,
+        Portfolio=portfolio,
+        App=app,
         AppRegex=f"^prn:{portfolio}:{app}:.*:.*$",
-        Zone=zone_data.Zone,
+        Zone=zone_data.zone,
         Name="test application",
         Environment="prod",
         ImageAliases={"image1": "awsImageID1234234234"},
@@ -233,9 +227,6 @@ def get_app_data(portfolio_data: PortfolioFactsModel, zone_data: ZoneFactsModel,
 
 
 def initialize(arguments: dict):
-
-    if not bootstrap_dynamo():
-        raise Exception("Failed to bootstrap DynamoDB")
 
     org_data = get_organization()
 

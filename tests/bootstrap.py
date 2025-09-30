@@ -1,8 +1,6 @@
 import pytest
 
-import boto3
-
-from .conftest import *
+from .conftest import *  # noqa: F403 F401
 
 import core_framework as util
 
@@ -16,6 +14,8 @@ from core_db.profile.model import ProfileModelFactory
 
 import core_logging as log
 
+client = util.get_client() or "core"
+
 
 @pytest.fixture(scope="module")
 def bootstrap_dynamo():
@@ -27,11 +27,9 @@ def bootstrap_dynamo():
 
     try:
 
-        client = util.get_client()
-
-        if ClientFactsFactory.exists(client):
-            ClientFactsFactory.delete_table(client, wait=True)
-        ClientFactsFactory.create_table(client, wait=True)
+        if ClientFactsFactory.exists():
+            ClientFactsFactory.delete_table(wait=True)
+        ClientFactsFactory.create_table(wait=True)
 
         if PortfolioModelFactory.exists(client):
             PortfolioModelFactory.delete_table(client, wait=True)

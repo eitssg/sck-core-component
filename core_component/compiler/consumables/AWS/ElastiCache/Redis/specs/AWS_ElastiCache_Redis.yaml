@@ -40,10 +40,9 @@ AWS::ElastiCache::Redis:
           _IntMinValue: 0
           _IntMaxValue: 5
         SecurityGroupIds:
-          _Type: string
+          _Type: list
           _Required: false
-          _ListItemSpec:
-            _Type: string
+          _ListItemType: string
         SnapshotName:
           _Type: Fn::Pipeline::SnapshotId
           _Required: false

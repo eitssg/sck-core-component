@@ -7,7 +7,6 @@
 
 from typing import Any
 import os
-import io
 import re
 import jmespath
 import traceback
@@ -49,7 +48,7 @@ def handler(event: dict, context: dict | None) -> dict:
     :returns: Task Response containing compilation results
     :rtype: dict
     """
-    task_payload = TaskPayload(**event)
+    task_payload = TaskPayload.model_validate(event)
     log.set_correlation_id(task_payload.correlation_id)
 
     # Update config (global)

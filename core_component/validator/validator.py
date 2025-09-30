@@ -392,7 +392,7 @@ class Validator:
     def __is_eval_boolean(self, spec: dict, obj: Any) -> bool:
         return isinstance(obj, bool) or isinstance(obj, dict) and len(obj) == 1 and next(iter(obj)).startswith("Spec::")
 
-    def __validate_eval_boolean(self, spec_key: str, spec: dict, obj_key: str, obj: Any) -> bool:
+    def __validate_eval_boolean(self, spec_key: str, spec: dict, obj_key: str, obj: Any):
         log.trace("Validating eval-boolean '{}'".format(obj_key))
 
         # Validate boolean if object is a boolean
@@ -401,7 +401,7 @@ class Validator:
 
         # Check if object is a Spec:: function
         if isinstance(obj, dict) and len(obj) == 1 and next(iter(obj)).startswith("Spec::"):
-            return True
+            return
 
         self.__log_validation_error(
             spec_key,
@@ -410,7 +410,6 @@ class Validator:
             obj,
             "Expecting a boolean or eval, received {}".format(type(obj).__name__),
         )
-        return False
 
     def __is_float(self, spec: dict, obj: Any) -> bool:
         return isinstance(obj, (float, int)) or (isinstance(obj, str) and spec.get(self.__spec_key("FloatTypecast"), True))

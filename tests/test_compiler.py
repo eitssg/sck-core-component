@@ -16,6 +16,8 @@ from .data_for_testing import initialize
 
 from core_component import pipeline_compiler
 
+from .bootstrap import *  # noqa: F401
+
 
 @pytest.fixture(scope="module")
 def arguments():
@@ -107,21 +109,21 @@ def upload_package(task_payload: TaskPayload, package_package: str) -> PackageDe
 
     # arguments are collected from the commandline.
 
-    state_details = task_payload.Package
+    state_details = task_payload.package
 
-    bucket = MagicS3Client(Region=state_details.BucketRegion).Bucket(state_details.BucketName)
+    bucket = MagicS3Client(Region=state_details.bucket_region).Bucket(state_details.bucket_name)
 
     try:
         # package.zip should be small.  The whole thing is read into memory.  a few MB is ok.  but 100MB is not.
         with open(package_package, "rb") as f:
-            bucket.put_object(Key=state_details.Key, Body=f.read())
+            bucket.put_object(Key=state_details.key, Body=f.read())
     except Exception as e:
         print(e)
         pytest.fail("Failed to upload package")
 
     # we return the task action
 
-    return task_payload.Package
+    return task_payload.package
 
 
 @pytest.fixture(scope="module")
@@ -129,23 +131,23 @@ def facts(task_payload: TaskPayload, arguments: dict):
 
     cf, zf, pf, af = initialize(arguments)
 
-    deployment_details = task_payload.DeploymentDetails
+    deployment_details = task_payload.deployment_details
 
     facts = get_facts(deployment_details)
 
     assert facts is not None
 
-    assert facts["Client"] == cf.Client
-    assert facts["Portfolio"] == pf.Portfolio
-    assert facts["Zone"] == zf.Zone
-    assert facts["AppRegex"] == af.AppRegex
+    assert facts["Client"] == cf.client
+    assert facts["Portfolio"] == pf.portfolio
+    assert facts["Zone"] == zf.zone
+    assert facts["AppRegex"] == af.app_regex
 
     assert re.match(facts["AppRegex"], deployment_details.get_identity())
 
     return facts
 
 
-def test_run_pl_compile(task_payload: TaskPayload, upload_package: PackageDetails, facts: dict):
+def test_run_pl_compile(bootstrap_dynamo, task_payload: TaskPayload, upload_package: PackageDetails, facts: dict):
 
     assert isinstance(task_payload, TaskPayload)
     assert isinstance(upload_package, PackageDetails)

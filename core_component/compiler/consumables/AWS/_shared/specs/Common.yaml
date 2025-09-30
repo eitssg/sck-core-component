@@ -30,5 +30,5 @@ Common::IPv4:
 
 Common::AccountId:
   _Type: string
-  _StringLength: 12
+  _StringLength: '12'
   _StringRegex: '[0-9]+'

@@ -107,7 +107,7 @@ AWS::Serverless:
                   _StringLength: 0-256
               InputTemplate:
                 _Type: json-string
-                _StringLength: 1-8192
+                _JsonLength: 1-8192
 
     TopicSubscriptions:
       _KeyRegex: ".*TopicSubscription"

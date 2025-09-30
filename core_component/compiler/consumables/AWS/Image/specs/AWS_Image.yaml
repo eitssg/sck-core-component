@@ -4,7 +4,7 @@ AWS::Image:
   Configuration:
 
     BakeInstance:
-      _KeyCardinality: 1
+      _KeyCardinality: '1'
       _Required: true
       Pipeline::Security:
         _Type: Pipeline::IpSecurity

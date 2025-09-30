@@ -52,10 +52,10 @@ AWS::Cluster:
           _IntMinValue: 0
           # TODO: validate value is <= max
         MetricsCollection:
-          _Warning: This property is deprecated and will not be configurable in the future. Configuring this proprety has no effect. See documentation for more information.
           _Type: list
           _Required: false
           _ListItemType: Resource::AWS::AutoScaling::MetricsCollection
+          _Warning: This property is deprecated and will not be configurable in the future. Configuring this proprety has no effect. See documentation for more information.
 
     LaunchConfiguration:
       Metadata:
