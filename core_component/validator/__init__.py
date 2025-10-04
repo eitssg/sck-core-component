@@ -1,16 +1,33 @@
+from typing import Any
 import os
 import traceback
-from .spec_library import SpecLibrary
+
+import core_framework as util
+
+from .spec_library import SpecLibrary, SpecType
 from .validator import Validator
 
 # Load the component compiler specs library
-spec_library = SpecLibrary()
+spec_library: SpecLibrary = SpecLibrary()
 
 
-def validate_component(component_name, definitions, context):
+def validate_component(component_name: str, definition: dict[str, Any]) -> dict:
     try:
-        definition = definitions[component_name]
-        if "Type" not in definition:
+
+        if definition is None:
+            return {
+                "ValidationErrors": [
+                    {
+                        "Component": component_name,
+                        "Details": {"Key": component_name},
+                        "Message": "Validation error - Missing component definition",
+                    }
+                ],
+                "ValidationWarnings": [],
+            }
+
+        component_type = definition.get("Type")
+        if component_type is None:
             return {
                 "ValidationErrors": [
                     {
@@ -22,9 +39,7 @@ def validate_component(component_name, definitions, context):
                 "ValidationWarnings": [],
             }
 
-        component_type = definition["Type"]
         spec = spec_library.get_spec(component_type)
-
         if spec is None:
             return {
                 "ValidationErrors": [
@@ -42,6 +57,7 @@ def validate_component(component_name, definitions, context):
         errors, warnings = validator.validate()
 
         return {"ValidationErrors": errors, "ValidationWarnings": warnings}
+
     except Exception as e:
         return {
             "ValidationErrors": [
@@ -60,16 +76,29 @@ def validate_specs() -> list:
     # Get the current folder of this script
     script_dir = os.path.dirname(os.path.realpath(__file__))
 
-    spec_spec_library = SpecLibrary(spec_file_globs=[os.path.join(script_dir, "specs", "*.yaml")], meta_prefix="__")
+    paths = [
+        os.path.join(script_dir, "specs", "*.yaml"),
+        os.path.join(script_dir, "specs", "*.yml"),
+        os.path.join(script_dir, "specs", "*.yaml.j2"),
+    ]
+
+    spec_spec_library = SpecLibrary(spec_file_globs=paths, meta_prefix="__")
     errors: list = []
-    specs = spec_library.get_specs()
+    specs: dict[str, dict[str, Any]] = spec_library.get_specs()
 
-    spec_spec = spec_spec_library.get_spec("Spec")
+    spec_spec: dict[str, Any] | None = spec_spec_library.get_spec("Spec")
 
-    for spec_name in sorted(specs):
-        spec = specs[spec_name]
+    if spec_spec is None:
+        errors.append(
+            {
+                "Key": "Spec",
+                "Message": "Internal error - Could not find 'Spec' specification in the specs library",
+            }
+        )
+        return errors
 
-        validator = Validator(spec_name, spec, spec_spec, meta_prefix="__")
+    for spec_name, definition in specs.items():
+        validator = Validator(spec_name, definition, spec_spec, meta_prefix="__")
         errors += validator.validate()
 
     return errors

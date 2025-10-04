@@ -1,5 +1,13 @@
+from importlib.metadata import packages_distributions
+from core_framework.models import DeploymentDetails, PackageDetails, TaskPayload
+from core_helper import MagicBucket, MagicS3Client
 import pytest
 import os
+
+import core_logging as log
+import core_framework as util
+
+from core_component.handler import handler
 
 samples = [
     "applicationloadbalancer-quickstart.yaml",
@@ -34,6 +42,8 @@ samples = [
     "staticwebsite-v2-quickstart.yaml",
 ]
 
+client = util.get_client() or "core"
+
 
 def load_sample(sample_name: str) -> str:
 
@@ -44,28 +54,65 @@ def load_sample(sample_name: str) -> str:
     return data
 
 
+def upload_package(task_payload: TaskPayload, sample_name: str):
+
+    package = task_payload.package
+
+    dirname = os.path.dirname(os.path.realpath(__file__))
+    fn = os.path.join(dirname, "samples", sample_name)
+
+    log.info("Uploading package", details=package.model_dump())
+
+    bucket: MagicBucket = MagicS3Client().get_bucket(BucketName=package.bucket_name, Region=package.bucket_region)
+    bucket.put_object(Filename=fn, Key=package.key)
+
+
+def download_result(task_payload: TaskPayload, sample_name: str):
+
+    package = task_payload.package
+
+    dirname = os.path.dirname(os.path.realpath(__file__))
+    result_dir = os.path.join(dirname, "results")
+    os.makedirs(result_dir, exist_ok=True)
+    fn = os.path.join(result_dir, sample_name + ".result.yaml")
+
+    log.info("Downloading result", details=package.model_dump())
+
+    bucket: MagicBucket = MagicS3Client().get_bucket(BucketName=package.bucket_name, Region=package.bucket_region)
+    # bucket.download_file(Key=package.key + ".result.yaml", Filename=fn)
+
+
+@pytest.fixture
+def task_payload() -> TaskPayload:
+    return TaskPayload(
+        Task="deploy",
+        DeploymentDetails=DeploymentDetails(
+            Client=client,
+            Portfolio="my-portfolio",
+            App="my-application",
+            Branch="dev",
+            Build="001",
+        ),
+    )
+
+
 @pytest.mark.parametrize("sample_name", samples)
-def test_sample(sample_name: str):
+def test_sample(sample_name: str, task_payload: TaskPayload):
 
-    base_name = os.path.dirname(os.path.realpath(__file__))
+    log.info("Beginning test_sample", sample=sample_name)
 
-    body = load_sample(sample_name)
+    # set the sample name in the task payload so the handler can find it
+    dd = task_payload.deployment_details
+    task_payload.package.set_key(dd, sample_name)
 
-    print("-------------------------------------")
-    print(sample_name)
-    print(body)
-    print()
+    upload_package(task_payload, sample_name)
 
-    # remove the contents from the components folder
-    components_folder = os.path.join(base_name, "components")
-    os.system(f"cd {components_folder} && DEL * /Q")
+    print(f"Compiling {sample_name}")
 
-    fn = os.path.join(components_folder, sample_name)
-    with open(fn, "w") as f:
-        f.write(body)
+    details = handler(task_payload.model_dump(), None)
 
-    os.system(f"dir {components_folder}")
+    download_result(task_payload, sample_name)
 
-    print("-------------------------------------")
+    log.info("Response Details", details=details)
 
     assert True

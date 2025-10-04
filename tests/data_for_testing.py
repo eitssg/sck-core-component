@@ -2,24 +2,24 @@ import core_framework as util
 
 import core_helper.aws as aws
 
-from core_db.registry.client import ClientFactsModel, ClientFactsFactory
+from core_db.registry.client import ClientActions, ClientFact
 from core_db.registry.portfolio import (
-    PortfolioFactsModel,
-    PortfolioFactsFactory,
-    ContactFacts,
-    ApproverFacts,
-    ProjectFacts,
-    OwnerFacts,
+    ApproverFactsItem,
+    ContactFactsItem,
+    OwnerFactsItem,
+    PortfolioFact,
+    PortfolioActions,
+    ProjectFactsItem,
 )
-from core_db.registry.app import AppFactsModel, AppFactsFactory
+from core_db.registry.app import AppFact, AppActions
 from core_db.registry.zone import (
-    ZoneFactsModel,
-    ZoneFactsFactory,
-    AccountFacts,
-    RegionFacts,
-    KmsFacts,
-    SecurityAliasFacts,
-    ProxyFacts,
+    ZoneFact,
+    ProxyFactsItem,
+    SecurityAliasFactsItem,
+    KmsFactsItem,
+    AccountFactsItem,
+    RegionFactsItem,
+    ZoneActions,
 )
 
 client = util.get_client() or "core"
@@ -53,7 +53,7 @@ def get_organization() -> dict:
     return organization
 
 
-def get_client_data(organization: dict, arguments: dict) -> ClientFactsModel:
+def get_client_data(organization: dict, arguments: dict) -> ClientFact:
     global client
 
     assert "client" in arguments
@@ -65,31 +65,30 @@ def get_client_data(organization: dict, arguments: dict) -> ClientFactsModel:
 
     aws_account_id = organization["account_id"]
 
-    client_model = ClientFactsFactory.get_model()
-    cf = client_model(
-        client=client,
-        domain="my-domain.com",
-        organization_id=organization["id"],
-        organization_name=organization["name"],
-        organization_account=organization["account_id"],
-        organization_email=organization["email"],
-        client_region=region,
-        master_region=region,
-        automation_account=aws_account_id,
-        automation_bucket=bucket_name,
-        automation_bucket_region=region,
-        audit_account=aws_account_id,
-        docs_bucket=bucket_name,
-        security_account=aws_account_id,
-        ui_bucket=bucket_name,
-        scope_prefix="",
+    cf = ClientFact(
+        Client=client,
+        Domain="my-domain.com",
+        OrganizationId=organization["id"],
+        OrganizationName=organization["name"],
+        OrganizationAccount=organization["account_id"],
+        OrganizationEmail=organization["email"],
+        ClientRegion=region,
+        MasterRegion=region,
+        AutomationAccount=aws_account_id,
+        BucketName=bucket_name,
+        BucketRegion=region,
+        AuditAccount=aws_account_id,
+        DocsBucketName=bucket_name,
+        SecurityAccount=aws_account_id,
+        UiBucketName=bucket_name,
+        Scope="",
     )
-    cf.save()
+    ClientActions.create(record=cf)
 
     return cf
 
 
-def get_portfolio_data(client_data: ClientFactsModel, arguments: dict) -> PortfolioFactsModel:
+def get_portfolio_data(client_data: ClientFact, arguments: dict) -> PortfolioFact:
 
     assert "portfolio" in arguments
 
@@ -97,14 +96,13 @@ def get_portfolio_data(client_data: ClientFactsModel, arguments: dict) -> Portfo
 
     domain_name = client_data.domain
 
-    portfolio_model = PortfolioFactsFactory.get_model(client)
-    portfolio = portfolio_model(
+    portfolio = PortfolioFact(
         Portfolio=portfolio_name,
-        Contacts=[ContactFacts(name="John Doe", email="john.doe@tmail.com")],
-        Approvers=[ApproverFacts(name="Jane Doe", email="john.doe@tmail.com", roles=["admin"], sequence=1)],
-        Project=ProjectFacts(name="my-project", description="my project description", code="MYPRJ"),
-        Bizapp=ProjectFacts(name="my-bizapp", description="my bizapp description", code="MYBIZ"),
-        Owner=OwnerFacts(name="John Doe", email="john.doe@tmail.com"),
+        Contacts=[ContactFactsItem(Name="John Doe", Email="john.doe@tmail.com")],
+        Approvers=[ApproverFactsItem(Name="Jane Doe", Email="john.doe@tmail.com", Roles=["admin"], Sequence=1)],
+        Project=ProjectFactsItem(Name="my-project", Description="my project description", Code="MYPRJ"),
+        Bizapp=ProjectFactsItem(Name="my-bizapp", Description="my bizapp description", Code="MYBIZ"),
+        Owner=OwnerFactsItem(Name="John Doe", Email="john.doe@tmail.com"),
         Domain=f"my-app.{domain_name}",
         Tags={
             "BizzApp": "MyBizApp",
@@ -115,27 +113,24 @@ def get_portfolio_data(client_data: ClientFactsModel, arguments: dict) -> Portfo
             "date": "2021-01-01",
         },
     )
-    portfolio.save()
+    PortfolioActions.create(client=client_data.client, record=portfolio)
 
     return portfolio
 
 
-def get_zone_data(client_data: ClientFactsModel, arguments: dict) -> ZoneFactsModel:
+def get_zone_data(client_data: ClientFact, arguments: dict) -> ZoneFact:
 
-    automation_account_id = client_data.automation_account
+    automation_account_id = client_data.automation_account or "123456789012"
     automation_account_name = client_data.organization_name
 
-    zone_model = ZoneFactsFactory.get_model(client_data.client)
-    zone = zone_model(
-        Client=client_data.client,
+    zone = ZoneFact(
         Zone="my-automation-service-zone",
-        AccountFacts=AccountFacts(
-            Client=client_data.client,
+        AccountFacts=AccountFactsItem(
             AwsAccountId=automation_account_id,
             OrganizationalUnit="PrimaryUnit",
             AccountName=automation_account_name,
             Environment="prod",
-            Kms=KmsFacts(
+            Kms=KmsFactsItem(
                 AwsAccountId=automation_account_id,
                 KmsKeyArn="arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
                 KmsKey="alias/my-kms-key",
@@ -155,20 +150,20 @@ def get_zone_data(client_data: ClientFactsModel, arguments: dict) -> ZoneFactsMo
             Tags={"Zone": "my-automation-service-zone"},
         ),
         RegionFacts={
-            "sin": RegionFacts(
+            "sin": RegionFactsItem(
                 AwsRegion="ap-southeast-1",
                 AzCount=3,
                 ImageAliases={"imageid:latest": "ami-2342342342344"},
                 MinSuccessfulInstancesPercent=100,
                 SecurityAliases={
-                    "internet": [SecurityAliasFacts(Type="cidr", Value="0.0.0.0/0", Description="Internet CIDR")],
+                    "internet": [SecurityAliasFactsItem(Type="cidr", Value="0.0.0.0/0", Description="Internet CIDR")],
                     "intranet": [
-                        SecurityAliasFacts(
+                        SecurityAliasFactsItem(
                             Type="cidr",
                             Value="192.168.0.0/16",
                             Description="Global CIDR 1",
                         ),
-                        SecurityAliasFacts(Type="cidr", Value="10.0.0.0/8", Description="Global CIDR 2"),
+                        SecurityAliasFactsItem(Type="cidr", Value="10.0.0.0/8", Description="Global CIDR 2"),
                     ],
                 },
                 SecurityGroupAliases={
@@ -176,7 +171,7 @@ def get_zone_data(client_data: ClientFactsModel, arguments: dict) -> ZoneFactsMo
                     "alias2": "aws-sg-egress-groups",
                 },
                 Proxy=[
-                    ProxyFacts(
+                    ProxyFactsItem(
                         Host="myprox.proxy.com",
                         Port=8080,
                         Url="http://proxy.acme.com:8080",
@@ -193,12 +188,12 @@ def get_zone_data(client_data: ClientFactsModel, arguments: dict) -> ZoneFactsMo
         },
         Tags={"Zone": "my-automation-service-zone"},
     )
-    zone.save()
+    ZoneActions.create(client=client_data.client, record=zone)
 
     return zone
 
 
-def get_app_data(portfolio_data: PortfolioFactsModel, zone_data: ZoneFactsModel, arguments: dict) -> AppFactsModel:
+def get_app_data(client_data: ClientFact, portfolio_data: PortfolioFact, zone_data: ZoneFact, arguments: dict) -> AppFact:
 
     # The client/portfolio is where this BizApp that this Deployment is for.
     # The Zone is where this BizApp component will be deployed.
@@ -206,8 +201,7 @@ def get_app_data(portfolio_data: PortfolioFactsModel, zone_data: ZoneFactsModel,
     portfolio = portfolio_data.portfolio
     app = arguments["app"]
 
-    apps_model = AppFactsFactory.get_model(client)
-    app = apps_model(
+    app = AppFact(
         Portfolio=portfolio,
         App=app,
         AppRegex=f"^prn:{portfolio}:{app}:.*:.*$",
@@ -221,7 +215,7 @@ def get_app_data(portfolio_data: PortfolioFactsModel, zone_data: ZoneFactsModel,
         Metadata={"misc": "items"},
     )
 
-    app.save()
+    AppActions.create(client=client_data.client, record=app)
 
     return app
 
@@ -230,9 +224,9 @@ def initialize(arguments: dict):
 
     org_data = get_organization()
 
-    client_data: ClientFactsModel = get_client_data(org_data, arguments)
-    zone_data: ZoneFactsModel = get_zone_data(client_data, arguments)
-    portfolio_data: PortfolioFactsModel = get_portfolio_data(client_data, arguments)
-    app_data: AppFactsModel = get_app_data(portfolio_data, zone_data, arguments)
+    client_data: ClientFact = get_client_data(org_data, arguments)
+    zone_data: ZoneFact = get_zone_data(client_data, arguments)
+    portfolio_data: PortfolioFact = get_portfolio_data(client_data, arguments)
+    app_data: AppFact = get_app_data(client_data, portfolio_data, zone_data, arguments)
 
     return client_data, zone_data, portfolio_data, app_data

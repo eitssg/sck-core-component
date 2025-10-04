@@ -1,5 +1,8 @@
 # Copilot Instructions (Submodule: sck-core-component)
 
+## Plan → Approval → Execute (Mandatory)
+All non-trivial actions require plan + approval prior to execution. Root policy supersedes earlier proactive guidance.
+
 - Tech: Python package.
 - Precedence: Local file first; then root instructions in `../../.github/`.
 - Backend conventions: Reuse standards in `../sck-core-ui/docs/backend-code-style.md`.

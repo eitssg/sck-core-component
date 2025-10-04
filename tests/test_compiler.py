@@ -1,5 +1,7 @@
 import pytest
 import os
+import shutil
+import zipfile
 import re
 
 import core_framework as util
@@ -21,8 +23,10 @@ from .bootstrap import *  # noqa: F401
 
 @pytest.fixture(scope="module")
 def arguments():
+    """Simulate commandline arguments parsing."""
 
     client = util.get_client()  # from the --client paramter
+
     task = "compile"  # from the "command" positional parameter "compile" phase
     portfolio = "my-portfolio"  # from the -p, --portfolio parameter
     app = "my-app"  # from the -a, --app parameter
@@ -47,16 +51,39 @@ def arguments():
     return state
 
 
-def copy_sample(fn: str):
+def delete_component_files():
 
     dirname = os.path.dirname(os.path.realpath(__file__))
 
-    os.system(f"del {os.path.join(dirname, 'components')}/* /Q")
+    # Clean out existing component files
+    components_dir = os.path.join(dirname, "components")
+    if os.path.isdir(components_dir):
+        for entry in os.listdir(components_dir):
+            path = os.path.join(components_dir, entry)
+            try:
+                if os.path.isfile(path) or os.path.islink(path):
+                    os.unlink(path)
+                elif os.path.isdir(path):
+                    shutil.rmtree(path)
+            except Exception as e:
+                raise RuntimeError(f"Failed cleaning components directory entry '{path}': {e}")
+
+
+def copy_sample(fn: str):
+
+    delete_component_files()
+
+    dirname = os.path.dirname(os.path.realpath(__file__))
 
     src = os.path.join(dirname, "samples", fn)
     dst = os.path.join(dirname, "components", fn)
 
-    os.system(f"cp {src} {dst}")
+    # Replace shell copy with pure Python for cross-platform safety
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(src, dst)
+    except Exception as e:
+        raise RuntimeError(f"Failed to copy sample file '{src}' to '{dst}': {e}")
 
     return dst
 
@@ -72,10 +99,23 @@ def package_package():
     dirname = os.path.dirname(os.path.realpath(__file__))
     fn = os.path.join(dirname, V_PACKAGE_ZIP)
 
-    # set current working directory to the location of this file
-    files = " ".join(["components/*", "vars/*"])
+    # Build the zip archive using the stdlib (replaces external 7z dependency)
+    added = 0
+    with zipfile.ZipFile(fn, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for rel_root in ("components", "vars"):
+            root_path = os.path.join(dirname, rel_root)
+            if not os.path.isdir(root_path):
+                continue
+            for root, _dirs, files in os.walk(root_path):
+                for name in files:
+                    file_path = os.path.join(root, name)
+                    # Ensure forward slashes inside archive for consistency across platforms
+                    arcname = os.path.relpath(file_path, dirname).replace(os.path.sep, "/")
+                    zf.write(file_path, arcname)
+                    added += 1
 
-    os.system(f"cd {dirname} && 7z a {fn} " + files)
+    if added == 0:
+        raise RuntimeError("Package archive is empty; no files found in components/ or vars/ directories")
 
     # Remember 3 tasks are supported: deploy, plan, apply"
     # you will need to upload the appropriate files in your package.

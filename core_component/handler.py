@@ -1,24 +1,32 @@
-"""Description: Compile a deployspec package into actions and templates.
+"""Compile a deployspec package into actions and templates.
 
-# Extracts package files to a location in S3
-# Parses and compiles the package deployspec (deployspec.yml)
-# Uploads actions to S3
+High-level workflow:
+
+1. Extract package files to a (local or MagicS3 backed) staging location
+2. Parse and compile the deployspec (``deployspec.yml``) and component definition files
+3. Register portfolio/app/branch/build + component records in the database
+4. Render and validate component templates (enforce validation when configured)
+5. Upload compiled artefacts and user files to S3 (or local Magic bucket)
+
+This module exposes a Lambda-style ``handler`` plus internal helper functions. All
+helpers beginning with a double underscore are internal implementation details and
+are documented for Sphinx technical reference generation (Google/Napoleon style).
 """
 
+from copy import deepcopy
 from typing import Any
 import os
 import re
 import jmespath
 import traceback
-import json
 from datetime import datetime
 
 import core_logging as log
 
 import core_framework as util
 from core_framework.status import COMPILE_COMPLETE, COMPILE_FAILED, COMPILE_IN_PROGRESS
-from core_framework.constants import TR_RESPONSE, CTX_CONTEXT
-from core_framework.models import TaskPayload, PackageDetails
+from core_framework.constants import CTX_VARS, TR_RESPONSE, CTX_CONTEXT
+from core_framework.models import DeploymentDetails, TaskPayload, PackageDetails
 from core_helper.magic import MagicS3Client
 
 from core_db.dbhelper import register_item, update_status, update_item
@@ -29,24 +37,26 @@ from .compiler import (
     combine_result_files,
     compile_app_files,
     render_component,
-    assemble_context,
 )
 from .validator import validate_component
 
 
 def handler(event: dict, context: dict | None) -> dict:
-    """
-    AWS Lambda handler function.
+    """Lambda-style entrypoint for component compilation.
 
-    Processes component compilation events and returns task response.
-    Must return with Task Response { "Response": "..." }
+    Validates the inbound ``event`` as a :class:`TaskPayload`, sets correlation / identity
+    logging context, executes the compilation pipeline and returns a task response envelope.
 
-    :param event: Lambda event containing TaskPayload data
-    :type event: dict
-    :param context: Lambda context object (unused)
-    :type context: dict | None
-    :returns: Task Response containing compilation results
-    :rtype: dict
+    Args:
+        event (dict): Raw Lambda event / invocation payload expected to conform to ``TaskPayload``.
+        context (dict | None): Lambda context object (ignored in local mode / tests).
+
+    Returns:
+        dict: A dictionary shaped like ``{"Response": <result>}`` where ``<result>`` is the
+        normalized compilation status produced by :func:`execute` / ``__return``.
+
+    Raises:
+        pydantic.ValidationError: If the incoming payload cannot be validated as ``TaskPayload``.
     """
     task_payload = TaskPayload.model_validate(event)
     log.set_correlation_id(task_payload.correlation_id)
@@ -56,7 +66,7 @@ def handler(event: dict, context: dict | None) -> dict:
     # os.environ["PLATFORM_PATH"] = package.get("PlatformPath", "")
 
     # Setup logging (global)
-    log.setup(task_payload.identity)  # Fixed: lowercase attribute
+    log.setup(task_payload.identity)
 
     result = execute(task_payload)
 
@@ -64,7 +74,19 @@ def handler(event: dict, context: dict | None) -> dict:
 
 
 class CompileException(Exception):
-    """Exception raised when compilation fails."""
+    """Raised to short‑circuit the compilation with structured component results.
+
+    This exception allows early termination while preserving partial success data
+    (successful components, failed components, validation artefacts) so the caller
+    can return a consistent response envelope.
+
+    Attributes:
+        message (str): Human readable failure summary.
+        failed_components (dict): Mapping of component name -> failure record.
+        successful_components (dict): Mapping of component name -> success record.
+        validation_errors (list): Aggregated validation error entries.
+        validation_warnings (list): Aggregated validation warning entries.
+    """
 
     def __init__(
         self,
@@ -83,7 +105,26 @@ class CompileException(Exception):
 
 
 def execute(task_payload: TaskPayload) -> dict:
-    """Execute the compilation process for pipelines. Application template compiler."""
+    """Execute the full compilation workflow.
+
+    Steps:
+        1. Register portfolio/app/branch/build records.
+        2. Retrieve contextual facts (``get_facts``) for the deployment.
+        3. Download the package archive.
+        4. Build Jinja2 context (facts + user variables).
+        5. Render component definition files and register component records.
+        6. Validate definitions (optionally enforcing errors).
+        7. Compile/render components and upload artefacts + user files.
+
+    Args:
+        task_payload (TaskPayload): Validated task payload.
+
+    Returns:
+        dict: Normalized compilation result (see :func:`__return`).
+
+    Raises:
+        CompileException: For controlled compilation failures with structured content.
+    """
     try:
         log.info("Starting component compilation")
 
@@ -96,18 +137,20 @@ def execute(task_payload: TaskPayload) -> dict:
                 "Message": "Branch and Build details are required",
             }
 
-        branch_prn = deployment_details.get_branch_prn()
-        build_prn = deployment_details.get_build_prn()
-
-        register_item(branch_prn, deployment_details.branch)  # Fixed: lowercase attribute
-        register_item(build_prn, deployment_details.build, status=COMPILE_IN_PROGRESS)  # Fixed: lowercase attribute
-
         facts = get_facts(deployment_details)
 
+        contact_email = facts.get("OrganizationEmail", "<unknown>")
+
+        register_item("portfolio", deployment_details, contact_email=contact_email)
+        register_item("app", deployment_details, contact_email=contact_email)
+        register_item("branch", deployment_details)
+        register_item("build", deployment_details)
+
         update_status(
-            build_prn,
-            COMPILE_IN_PROGRESS,
-            "Build compilation started at {}".format(datetime.now().isoformat()),
+            "build",
+            deployment_details,
+            status=COMPILE_IN_PROGRESS,
+            message="Build compilation started at {}".format(datetime.now().isoformat()),
         )
 
         package_file_path = __download_package(task_payload.package)
@@ -126,8 +169,7 @@ def execute(task_payload: TaskPayload) -> dict:
 
     except CompileException as e:
         try:
-            build_prn = task_payload.deployment_details.get_build_prn()  # Fixed: added variable assignment
-            update_status(build_prn, COMPILE_FAILED, str(e.message))
+            update_status("build", deployment_details, status=COMPILE_FAILED, message=str(e.message))
         except Exception:
             pass
         return __return(
@@ -141,8 +183,7 @@ def execute(task_payload: TaskPayload) -> dict:
 
     except Exception as e:
         try:
-            build_prn = task_payload.deployment_details.get_build_prn()  # Fixed: added variable assignment
-            update_status(build_prn, COMPILE_FAILED, str(e))
+            update_status("build", deployment_details, status=COMPILE_FAILED, message=str(e))
         except Exception:
             pass
         log.error(
@@ -166,26 +207,23 @@ def execute(task_payload: TaskPayload) -> dict:
 
 
 def __create_context(task_payload: TaskPayload, facts: dict[str, Any], package_file_path: str) -> dict:
-    """
-    Create Jinja2 context from task payload, facts, and user variables.
+    """Build the Jinja2 rendering context.
 
-    Reads from the package.zip file the "platform/vars/*.yaml" files
-    and adds them to the jinja context. It builds a context with the following structure:
+    Reads ``platform/vars/*.yaml`` files from the downloaded package archive, merges
+    them with deployment *facts* to produce the structure:
 
-    {
-        "context": {facts data from the deployment details},
-        "vars": {vars data from the vars files in package.zip}
-    }
+    ``{"context": <facts>, "vars": <aggregated user variables>}``
 
-    :param task_payload: The task payload object containing deployment details
-    :type task_payload: TaskPayload
-    :param facts: The facts dictionary from deployment context
-    :type facts: dict[str, Any]
-    :param files: The files dictionary from package.zip
-    :type files: dict[str, Any]
-    :returns: The Jinja2 context dictionary
-    :rtype: dict
-    :raises Exception: If context creation fails
+    Args:
+        task_payload (TaskPayload): The current task payload (for status updates on failure).
+        facts (dict[str, Any]): Deployment/environment facts derived from ``DeploymentDetails``.
+        package_file_path (str): Local filesystem path to the downloaded package archive.
+
+    Returns:
+        dict: Assembled context dictionary consumed by compilation & validation.
+
+    Raises:
+        Exception: If variable loading or context assembly fails.
     """
     # Render the component definition files
     try:
@@ -195,14 +233,14 @@ def __create_context(task_payload: TaskPayload, facts: dict[str, Any], package_f
         # From the "preprocessor module"
         variables = load_user_variables(facts, package_file_path)
 
-        context = assemble_context(facts, variables)
+        context = {CTX_CONTEXT: facts, CTX_VARS: variables}
 
         return context
 
     except Exception as e:
-        build_prn = task_payload.deployment_details.get_build_prn()  # Fixed: lowercase attribute
+        deployment_details = task_payload.deployment_details  # Fixed: lowercase attribute
 
-        update_status(build_prn, COMPILE_FAILED, "Error processing component definition files")
+        update_status("build", deployment_details, status=COMPILE_FAILED, message="Error processing component definition files")
 
         exception_message = str(e)
         exception_message = re.sub(r" +", r" ", exception_message)
@@ -218,32 +256,34 @@ def __create_context(task_payload: TaskPayload, facts: dict[str, Any], package_f
 
 
 def __register_components(task_payload: TaskPayload, definitions: dict, context: dict):
-    """
-    Register components with the database.
+    """Register each component definition.
 
-    :param task_payload: The task payload object
-    :type task_payload: TaskPayload
-    :param definitions: Component definitions dictionary
-    :type definitions: dict
-    :param context: Jinja2 context dictionary
-    :type context: dict
+    Updates the build record metadata with full context, then iterates through all
+    component definitions extracting image alias / id information (if present) and
+    persists component records via ``register_item``.
+
+    Args:
+        task_payload (TaskPayload): Current task payload.
+        definitions (dict): Parsed component definition mapping.
+        context (dict): Rendering context containing image alias mappings.
     """
     log.info("Registering components with the Database")
     log.debug("Registering components with the Database", details=definitions)
 
-    deployment_details = task_payload.deployment_details  # Fixed: lowercase attribute
-    build_prn = deployment_details.get_build_prn()
+    deployment_details = deepcopy(task_payload.deployment_details)  # Fixed: lowercase attribute
 
-    # Dump context as metadata in DynamoDB
-    update_item(prn=build_prn, context=json.dumps(context))
+    # Dump context as metadata in DynamoDB in the build record
+    update_item("build", deployment_details, metadata=context)
 
     # Register components with the API
     for component_name, definition in definitions.items():
-        if not isinstance(definition, dict):
-            continue
 
-        component_prn = "{}:{}".format(build_prn, component_name)
-        image_alias, image_id = __get_component_image(definition, context[CTX_CONTEXT]["ImageAliases"])
+        if not isinstance(definition, dict):
+            raise ValueError(f"Invalid definition for component '{component_name}': expected a dictionary")
+
+        deployment_details.component = component_name  # Fixed: lowercase attribute
+
+        image_alias, image_id = __get_component_image(definition, context[CTX_CONTEXT].get("ImageAliases"))
 
         log.debug("Registering component with the database:", details=definition)
 
@@ -251,34 +291,34 @@ def __register_components(task_payload: TaskPayload, definitions: dict, context:
             log.debug("For component '{}', found image_alias '{}', image_id '{}'.".format(component_name, image_alias, image_id))
 
         register_item(
-            component_prn,
-            component_name,
-            component_type=definition.get("Type", "N/A"),
+            "component",
+            deployment_details,
+            component_type=definition.get("Type", definitions.get("type", "Unknown")),
             image_alias=image_alias,
             image_id=image_id,
         )
 
 
 def __compile_components(task_payload: TaskPayload, definitions: dict, context: dict) -> dict:
-    """
-    Compile all component definitions.
+    """Validate and compile component definitions.
 
-    :param task_payload: The task payload object
-    :type task_payload: TaskPayload
-    :param definitions: Component definitions dictionary
-    :type definitions: dict
-    :param context: Jinja2 context dictionary
-    :type context: dict
-    :returns: Compilation results
-    :rtype: dict
+    Performs validation (enforcement conditional on configuration), renders each
+    component, gathers validation / compilation errors and uploads compiled artefacts.
+
+    Args:
+        task_payload (TaskPayload): Current task payload.
+        definitions (dict): Component definitions keyed by component name.
+        context (dict): Resolved rendering context.
+
+    Returns:
+        dict: Standardized result structure (see :func:`__return`).
     """
     log.info("Compiling components")
 
-    deployment_details = task_payload.deployment_details  # Fixed: lowercase attribute
-    build_prn = deployment_details.get_build_prn()
+    deployment_details = task_payload.deployment_details
 
     # Validate the components
-    validation_results = __validate_definitions(build_prn, definitions, context)
+    validation_results = __validate_definitions(deployment_details, definitions)
 
     # Collect together all the validation errors and warnings
     validation_errors = []
@@ -289,11 +329,7 @@ def __compile_components(task_payload: TaskPayload, definitions: dict, context: 
 
     # Fail compilation if validation is enforced and there are any validation errors
     if util.is_enforce_validation() and validation_errors:
-        update_status(
-            build_prn,
-            COMPILE_FAILED,
-            "One or more components have failed validation",
-        )
+        update_status("build", deployment_details, status=COMPILE_FAILED, message="One or more components have failed validation")
 
         return __return(
             status="error",
@@ -304,7 +340,7 @@ def __compile_components(task_payload: TaskPayload, definitions: dict, context: 
 
     # Compile the components
     compile_results = __compile_component_definitions(
-        build_prn=build_prn,
+        deployment_details,
         definitions=definitions,
         context=context,
     )
@@ -317,11 +353,7 @@ def __compile_components(task_payload: TaskPayload, definitions: dict, context: 
     if failed_components:
         log.error("One or more components have failed compilation")
 
-        update_status(
-            build_prn,
-            COMPILE_FAILED,
-            "One or more components have failed compilation",
-        )
+        update_status("build", deployment_details, status=COMPILE_FAILED, message="One or more components have failed compilation")
 
         return __return(
             "error",
@@ -345,7 +377,7 @@ def __compile_components(task_payload: TaskPayload, definitions: dict, context: 
     except Exception as e:
         log.error("Error while uploading compiled components", details={"Error": str(e)})
 
-        update_status(build_prn, COMPILE_FAILED)
+        update_status("build", deployment_details, status=COMPILE_FAILED, message=f"Error while uploading compiled components: {e}")
 
         return __return(
             "error",
@@ -377,30 +409,30 @@ def __compile_components(task_payload: TaskPayload, definitions: dict, context: 
 
 
 def __return(
-    status,
-    message,
-    failed_components={},
-    successful_components={},
-    validation_errors=[],
-    validation_warnings=[],
+    status: str,
+    message: str,
+    failed_components: dict = {},
+    successful_components: dict = {},
+    validation_errors: list[dict[str, Any]] = [],
+    validation_warnings: list[dict[str, Any]] = [],
 ) -> dict:
-    """
-    Return standardized response structure.
+    """Construct the normalized compilation result.
 
-    :param status: Compilation status
-    :type status: str
-    :param message: Status message
-    :type message: str
-    :param failed_components: Components that failed compilation
-    :type failed_components: dict
-    :param successful_components: Components that compiled successfully
-    :type successful_components: dict
-    :param validation_errors: Validation errors
-    :type validation_errors: list
-    :param validation_warnings: Validation warnings
-    :type validation_warnings: list
-    :returns: Standardized response dictionary
-    :rtype: dict
+    NOTE: The default mutable arguments are intentionally preserved for legacy
+    compatibility (callers do not mutate them). Future refactors may replace them
+    with ``None`` + explicit initialization.
+
+    Args:
+        status (str): Overall result status (``"ok"`` or ``"error"``).
+        message (str): Human-readable summary message.
+        failed_components (dict, optional): Mapping of component -> failure record.
+        successful_components (dict, optional): Mapping of component -> success record.
+        validation_errors (list, optional): Aggregated validation error entries.
+        validation_warnings (list, optional): Aggregated validation warning entries.
+
+    Returns:
+        dict: Dictionary containing ``Status``, ``Message``, successful ``Components`` and
+        sorted ``CompilationErrors`` / ``CompilationWarnings`` lists.
     """
     errors = validation_errors + [
         {"Component": k, "Details": v["Details"], "Message": v["Message"]} for k, v in failed_components.items()
@@ -418,14 +450,17 @@ def __return(
 
 
 def __download_package(package: PackageDetails) -> str:
-    """
-    Download the package.zip from S3 to a temporary file.
+    """Download the package archive to a temporary file.
 
-    :param package: Package containing location of package.zip
-    :type package: PackageDetails
-    :returns: Path to the temporary zip file
-    :rtype: str
-    :raises ValueError: If package key is missing
+    Args:
+        package (PackageDetails): Package metadata including bucket, region and key.
+
+    Returns:
+        str: Absolute path to a temporary ``.zip`` file on the local filesystem.
+
+    Raises:
+        ValueError: If the package key is missing.
+        Exception: Propagates any underlying download errors after cleanup.
     """
     import tempfile
 
@@ -472,15 +507,17 @@ def __download_package(package: PackageDetails) -> str:
 
 
 def __upload_compiled_files(task_payload: TaskPayload, files: dict[str, str]) -> dict:
-    """
-    Upload files to storage.
+    """Upload compiled artefact and user files.
 
-    :param task_payload: The task_payload object
-    :type task_payload: TaskPayload
-    :param files: Files to upload
-    :type files: dict[str, str]
-    :returns: Dictionary with upload results for each file
-    :rtype: dict
+    Separates user file uploads (``/userfiles/`` path fragments) from artefact uploads
+    to maintain the expected prefix layout (``files/`` vs ``artefacts/``).
+
+    Args:
+        task_payload (TaskPayload): Current task payload (for bucket metadata).
+        files (dict[str, str]): Mapping of relative file name -> file body content (string / template output).
+
+    Returns:
+        dict: Mapping of original file name -> upload result metadata.
     """
     deployment_details = task_payload.deployment_details  # Fixed: lowercase attribute
 
@@ -510,18 +547,19 @@ def __upload_compiled_files(task_payload: TaskPayload, files: dict[str, str]) ->
 
 
 def __get_component_image(definition: dict, image_aliases: dict) -> tuple[str | None, str | None]:
-    """
-    Certain components have definition.Configuration.*.Properties.ImageId.Fn::Pipeline::ImageId.Name defined.
-    Example: Autoscale|Cluster=BakeInstance|LaunchConfiguration, Instance
-    FIXME AWS::LoadBalancedInstances components can have multiple "Instance" resources, with unique ImageIds!
+    """Resolve an image alias defined inside a component's configuration tree.
+
+    Searches nested ``Configuration.*.Properties.ImageId.Fn::Pipeline::ImageId.Name``
+    entries (using a compiled JMESPath expression) to translate an image alias into a
+    concrete image id via the provided ``image_aliases`` map.
 
     Args:
-        definition (dict): The definition of the component
-        image_aliases (dict): A dictionary of image aliases
+        definition (dict): Component definition dictionary.
+        image_aliases (dict): Mapping of image alias -> image id.
 
     Returns:
-        tuple: A tuple containing the image alias and image id
-
+        tuple[str | None, str | None]: ``(image_alias, image_id)`` if resolved, otherwise
+        ``(None, None)``.
     """
     expression = jmespath.compile('Properties.ImageId."Fn::Pipeline::ImageId".Name')
 
@@ -540,34 +578,37 @@ def __get_component_image(definition: dict, image_aliases: dict) -> tuple[str | 
     return None, None
 
 
-def __validate_definitions(build_prn: str, definitions: dict, context: dict) -> dict:
-    """
-    Validate component definitionss
+def __validate_definitions(deployment_details: DeploymentDetails, definitions: dict[str, dict[str, Any]]) -> dict:
+    """Validate each component definition.
+
+    Issues component-level status updates. When enforcement is enabled any validation
+    errors will mark components (and potentially the build) as failed and later cancel
+    remaining compilation steps.
 
     Args:
-        build_prn (str): _description_
-        definitions (dict): _description_
-        context (dict): _description_
-        environment (str): _description_
+        deployment_details (DeploymentDetails): Deployment metadata object.
+        definitions (dict): Component definitions mapping.
+        context (dict): Rendering / variable context.
 
     Returns:
-        dict: results of the validation.
+        dict: Mapping of component name -> validation result structure.
     """
 
     log.info("Validating component definitions")
 
-    results: dict = {}
+    results: dict[str, dict] = {}
+
+    dd = deepcopy(deployment_details)
 
     any_errors = False
-    for component_name in sorted(definitions):
+    for component_name, definition in definitions.items():
 
-        component_prn = "{}:{}".format(build_prn, component_name)
-        definition = definitions[component_name]
+        dd.component = component_name.lower()
+
+        update_status("component", dd, status=COMPILE_IN_PROGRESS, message="Validating component definition")
 
         # Validate the component
-        update_status(component_prn, COMPILE_IN_PROGRESS, "Validating component definition")
-
-        result = validate_component(component_name, definitions, context)
+        result = validate_component(component_name, definition)
 
         results[component_name] = result
         errors = result["ValidationErrors"]
@@ -596,44 +637,50 @@ def __validate_definitions(build_prn: str, definitions: dict, context: dict) -> 
             if util.is_enforce_validation():
                 # Validation errors with enforcement
                 update_status(
-                    component_prn,
-                    COMPILE_FAILED,
-                    "Component has failed validation",
+                    "component",
+                    dd,
+                    status=COMPILE_FAILED,
+                    message="Component has failed validation",
                     details={"Consumable": definition["Type"]},
                 )
             else:
                 # Validation errors without enforcement
                 update_status(
-                    component_prn,
-                    COMPILE_IN_PROGRESS,
-                    "Component has failed validation, but validation is not being enforced",
+                    "component",
+                    dd,
+                    status=COMPILE_IN_PROGRESS,
+                    message="Component has failed validation, but validation is not being enforced",
+                    details={"Consumable": definition["Type"]},
                 )
         elif warnings:
             # No errors but does have warnings
             update_status(
-                component_prn,
-                COMPILE_IN_PROGRESS,
-                "Component validation completed with warnings",
+                "component",
+                dd,
+                status=COMPILE_IN_PROGRESS,
+                message="Component validation completed with warnings",
+                details={"Consumable": definition["Type"]},
             )
         else:
             # No warnings or errors
-            update_status(component_prn, COMPILE_IN_PROGRESS, "Component validation completed")
+            update_status("component", dd, status=COMPILE_IN_PROGRESS, message="Component validation completed")
 
     # Cancel remaining compilations if validation is enforced and there are any validation errors
     if util.is_enforce_validation() and any_errors:
 
-        for component_name in sorted(results):
-            definition = definitions[component_name]
+        for component_name, definition in results.items():
+
+            dd.component = component_name.lower()
 
             result = results[component_name]
-            component_prn = "{}:{}".format(build_prn, component_name)
 
             # Only update the status if we wouldn't have previously set status to COMPILE_FAILED
             if not result["ValidationErrors"]:
                 update_status(
-                    component_prn,
-                    COMPILE_FAILED,
-                    "Cancelled due to other build errors",
+                    "component",
+                    dd,
+                    status=COMPILE_FAILED,
+                    message="Cancelled due to other build errors",
                     details={"Consumable": definition["Type"]},
                 )
 
@@ -641,34 +688,45 @@ def __validate_definitions(build_prn: str, definitions: dict, context: dict) -> 
 
 
 def __compile_component_definitions(
-    build_prn: str,
-    definitions: dict,
-    context: dict,
+    deployment_details: DeploymentDetails,
+    definitions: dict[str, dict[str, Any]],
+    context: dict[str, Any],
 ) -> dict:
-    """Pass each component throught the renderer for var replacement with the context."""
+    """Render component definitions into final artefact representations.
+
+    Also compiles application-level files (``_application`` pseudo component) before
+    iterating per component name.
+
+    Args:
+        deployment_details (DeploymentDetails): Deployment metadata object.
+        definitions (dict): Component definition mapping.
+        context (dict): Rendering context.
+
+    Returns:
+        dict: Mapping of component (and ``_application``) -> compilation result record.
+    """
 
     results: dict = {}
 
     results["_application"] = compile_app_files(definitions, context)
 
-    for component_name in sorted(definitions):
-        definition = definitions[component_name]
-        component_prn = "{}:{}".format(build_prn, component_name)
+    dd = deepcopy(deployment_details)
+
+    for component_name, definition in definitions.items():
+
+        dd.component = component_name.lower()
 
         result = render_component(component_name, definitions, context)
 
         if result["Status"] == "ok":
             # Successful compilation
-            update_status(
-                component_prn,
-                COMPILE_COMPLETE,
-                details={"Consumable": definition["Type"]},
-            )
+            update_status("component", dd, status=COMPILE_COMPLETE, details={"Consumable": definition["Type"]})
         else:
             # Errors during compilation
             update_status(
-                component_prn,
-                COMPILE_FAILED,
+                "component",
+                dd,
+                status=COMPILE_FAILED,
                 message=result["Message"],
                 details={"Consumable": definition["Type"]},
             )
@@ -685,25 +743,20 @@ def __upload_object(
     file_name: str,
     body: Any,
 ) -> dict:
-    """
-    Save the object to the targed Bucket.
+    """Persist a single compiled file to the target bucket / local storage.
 
-    For "Local" mode, the bucket is a MagicBucket object.  So, look on your filesystem
-
-    prefix is the path to the object.  It will be a path like files/**, pacakges/**, artefacts/**
-
-    files is a dictionary of binary objets (byte arrays) indexed by the filename.
+    Uses platform abstraction (``MagicS3Client``) so local mode writes to the configured
+    volume while remote mode writes to S3 with SSE and bucket-owner-full-control ACL.
 
     Args:
-        bucket (Any): S3 Bucket or MagicBucket object
-        bucket_region (str): Region for the S3 bucket
-        prefix (str): prefix for the object.  Will be a path like files/**, pacakges/**, artefacts/**
-        file_name (str): filename of the object
-        body (Any): binary object (byte array)
-        sep (str): path separator
+        bucket (Any): Underlying bucket (Magic bucket or boto3-like wrapper) supporting ``put_object``.
+        bucket_region (str): Region of the S3 bucket (unused in local write but retained for logging).
+        prefix (str): Logical object prefix (``files``, ``packages`` or ``artefacts`` style path).
+        file_name (str): Relative file name produced during compilation.
+        body (Any): File body (string / bytes) to upload.
 
     Returns:
-        dict: _description_
+        dict: Upload result metadata including ``BucketName``, ``BucketRegion``, ``Key`` and ``VersionId``.
     """
     sep = "/" if util.is_use_s3() else os.path.sep
 

@@ -1,7 +1,10 @@
+from typing import Any, Type
 import core_framework as util
 from glob import glob
 import os
 import core_logging as log
+
+SpecType = Type[dict[str, Any]]
 
 
 class SpecLibrary:
@@ -10,8 +13,8 @@ class SpecLibrary:
 
     SPEC_FILE_GLOBS = [os.path.join(module_dir, "compiler", "consumables", "**", "specs", "*.yaml")]
 
-    specs: dict
-    compiled_specs: list[dict]
+    specs: dict[str, dict[str, Any]]
+    compiled_specs: list[str]
     meta_prefix: str
 
     def __init__(self, spec_file_globs: list[str] = SPEC_FILE_GLOBS, meta_prefix: str = "_"):
@@ -23,7 +26,7 @@ class SpecLibrary:
         for spec_file_glob in spec_file_globs:
             self.__load(spec_file_glob)
 
-    def get_spec(self, spec_name):
+    def get_spec(self, spec_name: str) -> dict[str, Any] | None:
         if spec_name not in self.specs:
             return None
 
@@ -33,7 +36,7 @@ class SpecLibrary:
 
         return self.specs[spec_name]
 
-    def get_specs(self) -> dict:
+    def get_specs(self) -> dict[str, dict[str, Any]]:
         specs = {}
         for spec_name in self.specs:
             specs[spec_name] = self.get_spec(spec_name)
@@ -43,7 +46,7 @@ class SpecLibrary:
     def __spec_key(self, key: str) -> str:
         return self.meta_prefix + key
 
-    def __is_primitive_type(self, item_type):
+    def __is_primitive_type(self, item_type: str) -> bool:
         """
         Returns true if the provided type is a primitive type, false otherwise
         * Custom types have upper case characters (eg. Component) or colons (eg. Common::MetaData)
@@ -63,7 +66,7 @@ class SpecLibrary:
 
             util.deep_merge_in_place(self.specs, spec)
 
-    def __compile(self, spec_key: str, spec: dict, layer=0) -> dict:  # noqa: C901
+    def __compile(self, spec_key: str, spec: dict, layer=0) -> dict[str, Any]:  # noqa: C901
 
         def should_merge(k: str, dest, src) -> bool:
             return k == self.__spec_key("Type") or not k.startswith(self.meta_prefix)
