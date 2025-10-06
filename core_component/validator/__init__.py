@@ -1,17 +1,14 @@
-from typing import Any
 import os
 import traceback
 
-import core_framework as util
-
-from .spec_library import SpecLibrary, SpecType
-from .validator import Validator
+from .spec_library import SpecLibrary, Spec, SpecList
+from .validator import Validator, ComponentDefintion, ComponentDefintionList
 
 # Load the component compiler specs library
 spec_library: SpecLibrary = SpecLibrary()
 
 
-def validate_component(component_name: str, definition: dict[str, Any]) -> dict:
+def validate_component(component_name: str, definition: ComponentDefintion) -> dict:
     try:
 
         if definition is None:
@@ -39,7 +36,7 @@ def validate_component(component_name: str, definition: dict[str, Any]) -> dict:
                 "ValidationWarnings": [],
             }
 
-        spec = spec_library.get_spec(component_type)
+        spec: Spec = spec_library.get_spec(component_type)
         if spec is None:
             return {
                 "ValidationErrors": [
@@ -84,9 +81,9 @@ def validate_specs() -> list:
 
     spec_spec_library = SpecLibrary(spec_file_globs=paths, meta_prefix="__")
     errors: list = []
-    specs: dict[str, dict[str, Any]] = spec_library.get_specs()
+    specs: SpecList = spec_library.get_specs()
 
-    spec_spec: dict[str, Any] | None = spec_spec_library.get_spec("Spec")
+    spec_spec: Spec | None = spec_spec_library.get_spec("Spec")
 
     if spec_spec is None:
         errors.append(

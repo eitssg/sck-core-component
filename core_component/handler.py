@@ -14,7 +14,8 @@ are documented for Sphinx technical reference generation (Google/Napoleon style)
 """
 
 from copy import deepcopy
-from typing import Any
+from turtle import st
+from typing import Any, Dict
 import os
 import re
 import jmespath
@@ -32,13 +33,15 @@ from core_helper.magic import MagicS3Client
 from core_db.dbhelper import register_item, update_status, update_item
 from core_db.facter import get_facts
 
+from core_component.validator.validator import ComponentDefintionList
+
 from .preprocessor import load_user_variables, render_component_defintitions
 from .compiler import (
     combine_result_files,
     compile_app_files,
     render_component,
 )
-from .validator import validate_component
+from .validator import validate_component, ComponentDefintion
 
 
 def handler(event: dict, context: dict | None) -> dict:
@@ -155,9 +158,9 @@ def execute(task_payload: TaskPayload) -> dict:
 
         package_file_path = __download_package(task_payload.package)
 
-        context = __create_context(task_payload, facts, package_file_path)
+        context: dict[str, Any] = __create_context(task_payload, facts, package_file_path)
 
-        definitions = render_component_defintitions(package_file_path, context)
+        definitions: ComponentDefintionList = render_component_defintitions(package_file_path, context)
 
         # Register the components into the Database that will are defined in this deployment
         __register_components(task_payload, definitions, context)
@@ -206,7 +209,7 @@ def execute(task_payload: TaskPayload) -> dict:
                 log.warning(f"Failed to clean up temporary file: {cleanup_error}")
 
 
-def __create_context(task_payload: TaskPayload, facts: dict[str, Any], package_file_path: str) -> dict:
+def __create_context(task_payload: TaskPayload, facts: dict[str, Any], package_file_path: str) -> dict[str, Any]:
     """Build the Jinja2 rendering context.
 
     Reads ``platform/vars/*.yaml`` files from the downloaded package archive, merges
@@ -255,7 +258,7 @@ def __create_context(task_payload: TaskPayload, facts: dict[str, Any], package_f
         raise Exception(exception_message)
 
 
-def __register_components(task_payload: TaskPayload, definitions: dict, context: dict):
+def __register_components(task_payload: TaskPayload, definitions: ComponentDefintionList, context: dict[str, Any]):
     """Register each component definition.
 
     Updates the build record metadata with full context, then iterates through all
@@ -299,7 +302,7 @@ def __register_components(task_payload: TaskPayload, definitions: dict, context:
         )
 
 
-def __compile_components(task_payload: TaskPayload, definitions: dict, context: dict) -> dict:
+def __compile_components(task_payload: TaskPayload, definitions: ComponentDefintionList, context: dict[str, Any]) -> dict[str, Any]:
     """Validate and compile component definitions.
 
     Performs validation (enforcement conditional on configuration), renders each
@@ -546,7 +549,7 @@ def __upload_compiled_files(task_payload: TaskPayload, files: dict[str, str]) ->
     return result
 
 
-def __get_component_image(definition: dict, image_aliases: dict) -> tuple[str | None, str | None]:
+def __get_component_image(definition: ComponentDefintion, image_aliases: dict[str, Any]) -> tuple[str | None, str | None]:
     """Resolve an image alias defined inside a component's configuration tree.
 
     Searches nested ``Configuration.*.Properties.ImageId.Fn::Pipeline::ImageId.Name``
@@ -578,7 +581,7 @@ def __get_component_image(definition: dict, image_aliases: dict) -> tuple[str | 
     return None, None
 
 
-def __validate_definitions(deployment_details: DeploymentDetails, definitions: dict[str, dict[str, Any]]) -> dict:
+def __validate_definitions(deployment_details: DeploymentDetails, definitions: ComponentDefintionList) -> dict:
     """Validate each component definition.
 
     Issues component-level status updates. When enforcement is enabled any validation
@@ -689,9 +692,9 @@ def __validate_definitions(deployment_details: DeploymentDetails, definitions: d
 
 def __compile_component_definitions(
     deployment_details: DeploymentDetails,
-    definitions: dict[str, dict[str, Any]],
+    definitions: ComponentDefintionList,
     context: dict[str, Any],
-) -> dict:
+) -> Dict[str, Dict[str, Any]]:
     """Render component definitions into final artefact representations.
 
     Also compiles application-level files (``_application`` pseudo component) before
@@ -706,7 +709,7 @@ def __compile_component_definitions(
         dict: Mapping of component (and ``_application``) -> compilation result record.
     """
 
-    results: dict = {}
+    results: Dict[str, Dict[str, Any]] = {}
 
     results["_application"] = compile_app_files(definitions, context)
 
@@ -716,7 +719,7 @@ def __compile_component_definitions(
 
         dd.component = component_name.lower()
 
-        result = render_component(component_name, definitions, context)
+        result: Dict[str, Any] = render_component(component_name, definitions, context)
 
         if result["Status"] == "ok":
             # Successful compilation
@@ -742,7 +745,7 @@ def __upload_object(
     prefix: str,
     file_name: str,
     body: Any,
-) -> dict:
+) -> dict[str, Any]:
     """Persist a single compiled file to the target bucket / local storage.
 
     Uses platform abstraction (``MagicS3Client``) so local mode writes to the configured

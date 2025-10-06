@@ -1,10 +1,11 @@
-from typing import Any, Type
+from typing import Any, Type, Dict, TypeVar
 import core_framework as util
 from glob import glob
 import os
 import core_logging as log
 
-SpecType = Type[dict[str, Any]]
+Spec = Dict[str, Any]
+SpecList = Dict[str, Spec]
 
 
 class SpecLibrary:
@@ -13,7 +14,7 @@ class SpecLibrary:
 
     SPEC_FILE_GLOBS = [os.path.join(module_dir, "compiler", "consumables", "**", "specs", "*.yaml")]
 
-    specs: dict[str, dict[str, Any]]
+    specs: SpecList
     compiled_specs: list[str]
     meta_prefix: str
 
@@ -26,7 +27,7 @@ class SpecLibrary:
         for spec_file_glob in spec_file_globs:
             self.__load(spec_file_glob)
 
-    def get_spec(self, spec_name: str) -> dict[str, Any] | None:
+    def get_spec(self, spec_name: str) -> Spec | None:
         if spec_name not in self.specs:
             return None
 
@@ -36,7 +37,7 @@ class SpecLibrary:
 
         return self.specs[spec_name]
 
-    def get_specs(self) -> dict[str, dict[str, Any]]:
+    def get_specs(self) -> SpecList:
         specs = {}
         for spec_name in self.specs:
             specs[spec_name] = self.get_spec(spec_name)
@@ -66,12 +67,12 @@ class SpecLibrary:
 
             util.deep_merge_in_place(self.specs, spec)
 
-    def __compile(self, spec_key: str, spec: dict, layer=0) -> dict[str, Any]:  # noqa: C901
+    def __compile(self, spec_key: str, spec: Spec, layer=0) -> Spec:  # noqa: C901
 
         def should_merge(k: str, dest, src) -> bool:
             return k == self.__spec_key("Type") or not k.startswith(self.meta_prefix)
 
-        spec = util.deep_copy(spec)
+        spec: Spec = util.deep_copy(spec)
 
         if layer > 15:
             log.warn("Validation spec too deep, stopping compilation '{}'".format(spec_key))

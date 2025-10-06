@@ -30,7 +30,7 @@ Notes:
             for Sphinx technical reference.
 """
 
-from typing import Any
+from typing import Any, Dict
 import os
 import traceback
 
@@ -41,6 +41,9 @@ import core_logging as log
 
 from core_renderer import Jinja2Renderer
 
+from ..validator import ComponentDefintionList, ComponentDefintion
+
+
 # Create the actions renderer.  Templaes are stored relative to this file
 application_path = os.path.join(os.path.dirname(__file__), "application")
 application_renderer = Jinja2Renderer(application_path)
@@ -50,7 +53,7 @@ consumables_path = os.path.join(os.path.dirname(__file__), "consumables")
 consumable_renderer = Jinja2Renderer(consumables_path)
 
 
-def compile_app_files(definitions: dict[str, dict[str, Any]], context: dict[str, Any]) -> dict:
+def compile_app_files(definitions: ComponentDefintionList, context: Dict[str, Any]) -> Dict[str, Any]:
     """Compile application-scoped (non-component) actions and files.
 
     Renders predefined application sections (``events`` and ``kms``) into the
@@ -99,9 +102,9 @@ def compile_app_files(definitions: dict[str, dict[str, Any]], context: dict[str,
     # TODO - fixme.  This is wrong.  The list of application files should come from the user package.
     # Should probably not be an empty list here.
     # Should be user defined "deploy.actions", "teardown.actions", "plan.actions", etc.
-    application_actions: dict = {}
+    application_actions: Dict[str, str] = {}
 
-    application_files: dict = {}
+    application_files: Dict[str, str] = {}
     try:
 
         for section in ["events", "kms"]:
@@ -111,17 +114,17 @@ def compile_app_files(definitions: dict[str, dict[str, Any]], context: dict[str,
             # Render application actions.  Checkout all the files
             # in core_component/application/events/actions
             # and core_component/application/kms/actions
-            # We render these with the context facts.  Remeber the "CTX_CONTEXT" is "context"
+            # We render these with the context facts.  Remember the "CTX_CONTEXT" is "context"
             # in the pipeline compiler.
-            action_files = application_renderer.render_files(actions_path, render_context)
+            action_files: Dict[str, str] = application_renderer.render_files(actions_path, render_context)
             application_actions = __combine_objects(application_actions, action_files)
 
             # Render application files.  Get the template files
             # in core_component/application/events/files
             # and core_component/application/kms/files
-            # We render these with the context facts.  Remeber the "CTX_CONTEXT" is "context"
+            # We render these with the context facts.  Remember the "CTX_CONTEXT" is "context"
             # in the pipeline compiler.
-            files_files = application_renderer.render_files(files_path, render_context)
+            files_files: Dict[str, str] = application_renderer.render_files(files_path, render_context)
 
             # TODO - Fixme: I don't like the _application subfolder.  it's not needed.
             files_files = {f"_application/{k}": v for k, v in files_files.items()}
@@ -146,7 +149,7 @@ def compile_app_files(definitions: dict[str, dict[str, Any]], context: dict[str,
         }
 
 
-def render_component(component_name: str, definitions: dict, context: dict) -> dict:
+def render_component(component_name: str, definitions: ComponentDefintionList, context: Dict[str, Any]) -> Dict[str, Any]:
     """Render a single component's actions, files, and userfiles.
 
     Discovers the component template root by splitting its fully-qualified
@@ -165,7 +168,7 @@ def render_component(component_name: str, definitions: dict, context: dict) -> d
         A failure in any stage returns an ``error`` envelope with stack trace.
     """
     # Extract current component definition
-    definition = definitions[component_name]
+    definition: ComponentDefintion = definitions[component_name]
 
     # Generate PRNs
     prns = __generate_prns(context, component_name)
@@ -232,14 +235,14 @@ def render_component(component_name: str, definitions: dict, context: dict) -> d
         userfiles_path = os.path.join(base_path, "userfiles")
 
         # Render actions
-        component_actions = consumable_renderer.render_files(actions_path, render_context)
+        component_actions: Dict[str, str] = consumable_renderer.render_files(actions_path, render_context)
 
         # Render files
-        component_files = consumable_renderer.render_files(files_path, render_context)
+        component_files: Dict[str, str] = consumable_renderer.render_files(files_path, render_context)
         component_files = {("{}/{}".format(component_name, k)): v for k, v in component_files.items()}
 
         # Render userfiles
-        component_userfiles = consumable_renderer.render_files(userfiles_path, render_context)
+        component_userfiles: Dict[str, str] = consumable_renderer.render_files(userfiles_path, render_context)
         component_userfiles = {("{}/userfiles/{}".format(component_name, k)): v for k, v in component_userfiles.items()}
         component_files.update(component_userfiles)
 
@@ -261,7 +264,7 @@ def render_component(component_name: str, definitions: dict, context: dict) -> d
     return result
 
 
-def combine_result_files(results: dict) -> dict:
+def combine_result_files(results: dict[str, Any]) -> dict[str, str]:
     """Flatten multiple result envelopes into a single file mapping.
 
     Aggregates ``Actions`` (concatenating duplicate keys) and merges file
@@ -277,7 +280,7 @@ def combine_result_files(results: dict) -> dict:
         The order of concatenation for actions follows the iteration order of
         ``results.values()``.
     """
-    files: dict = {}
+    files: dict[str, str] = {}
     for result in results.values():
 
         __combine_objects(files, result["Actions"])
@@ -287,7 +290,7 @@ def combine_result_files(results: dict) -> dict:
     return files
 
 
-def __combine_objects(object1: Any, object2: Any) -> Any:
+def __combine_objects(object1: dict[str, str], object2: dict[str, str]) -> dict[str, str]:
     """Merge two action/file dictionaries, concatenating values on duplicate keys.
 
     Note that object 1 and object 2 are:
@@ -332,19 +335,19 @@ def __combine_objects(object1: Any, object2: Any) -> Any:
         should already be structured to support this.
     """
 
-    if isinstance(object1, dict) and isinstance(object2, dict):
-        for key, value in object2.items():
-            if key not in object1:
-                # New key, create it
-                object1[key] = value
-            else:
-                # Key exists, concatenate
-                object1[key] += value
+    for key, value in object2.items():
+        if key not in object1:
+            # New key, create it
+            object1[key] = value
+        else:
+            # Key exists, concatenate
+            object1[key] += "\n"  # Ensure a newline between concatenated sections
+            object1[key] += value
 
     return object1
 
 
-def __generate_prns(context: dict, component_name: str | None = None) -> dict:
+def __generate_prns(context: dict, component_name: str | None = None) -> dict[str, str]:
     """Generate hierarchical PRNs (Portfolio → App → Branch → Build → Component).
 
     Args:

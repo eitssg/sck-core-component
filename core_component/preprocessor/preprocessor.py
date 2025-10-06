@@ -55,11 +55,13 @@ import core_logging as log
 
 from core_renderer import Jinja2Renderer
 
+from ..validator import ComponentDefintionList
+
 DEFINITION_FILE_PATTERN = r"components/[^/\\]+\.yaml$"
 VARS_FILE_PATTERN = r"vars/[^/\\]+\.yaml$"
 
 
-def render_component_defintitions(package_file_path: str, context: dict[str, Any]) -> dict[str, Any]:
+def render_component_defintitions(package_file_path: str, context: dict[str, Any]) -> ComponentDefintionList:
     """Render all component definition YAML files.
 
     Iterates over ``components/*.yaml`` entries in the deployment package
@@ -88,7 +90,9 @@ def render_component_defintitions(package_file_path: str, context: dict[str, Any
     renderer = Jinja2Renderer()
 
     definitions_pattern = re.compile(DEFINITION_FILE_PATTERN)
-    definitions: dict = {}
+
+    definitions: ComponentDefintionList = {}
+
     with zipfile.ZipFile(package_file_path, "r") as zip_file:
         for filename in zip_file.namelist():
 
@@ -150,7 +154,7 @@ def __select_branch_variables(branch: str, variables: dict[str, Any]) -> dict[st
     Returns:
         dict[str, Any]: Deep merged mapping of variable names -> values.
     """
-    result_variables: dict = {}
+    result_variables: dict[str, Any] = {}
 
     for branch_pattern, branch_variables in variables.items():
         if not isinstance(branch_variables, dict):
