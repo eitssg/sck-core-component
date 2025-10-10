@@ -1,8 +1,33 @@
 import re
-from typing import Any
+from typing import Any, Dict
 import core_logging as log
 import json
 import traceback
+
+from .spec_library import Spec
+
+ComponentDefintion = Dict[str, Any]
+""" Component Definition is a Core SCK component resource definition
+
+>>>
+Type: AWS::S3::Bucket
+Configuration:
+    BucketName: my-bucket
+    VersioningConfiguration:
+    Status: Enabled
+"""
+
+ComponentDefintionList = Dict[str, ComponentDefintion]
+""" Component Definition list is a mapping of component name to component resource definition
+
+>>>
+my_s3_bucket_lablel_name:
+    Type: AWS::S3::Bucket
+    Configuration:
+        BucketName: my-bucket
+        VersioningConfiguration:
+        Status: Enabled
+"""
 
 
 class Validator:
@@ -17,14 +42,14 @@ class Validator:
         "Ref",
     ]
 
-    spec: dict[str, dict[str, Any]]
+    spec: Spec
     definition_name: str
-    definition: dict[str, dict[str, Any]]
+    definition: ComponentDefintion
     validation_errors: list[dict[str, Any]]
     validation_warnings: list[dict[str, Any]]
     meta_prefix: str
 
-    def __init__(self, definition_name: str, definition: dict[str, Any], spec: dict[str, dict[str, Any]], meta_prefix: str = "_"):
+    def __init__(self, definition_name: str, definition: ComponentDefintion, spec: Spec, meta_prefix: str = "_"):
         self.spec = spec
         self.definition_name = definition_name
         self.definition = definition
@@ -67,7 +92,7 @@ class Validator:
     def __spec_key(self, key):
         return self.meta_prefix + key
 
-    def __log_validation_error(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any, message: str):
+    def __log_validation_error(self, spec_key: str, spec: Spec, obj_key: str, obj: Any, message: str):
         item: dict = {
             "Component": self.definition_name,
             "Details": {"Key": obj_key},
@@ -79,7 +104,7 @@ class Validator:
 
         self.validation_errors.append(item)
 
-    def __log_validation_warning(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: dict, message: str):
+    def __log_validation_warning(self, spec_key: str, spec: Spec, obj_key: str, obj: dict, message: str):
         item: dict = {
             "Component": self.definition_name,
             "Details": {"Key": obj_key},
@@ -91,7 +116,7 @@ class Validator:
 
         self.validation_warnings.append(item)
 
-    def __validate(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any):  # noqa: C901
+    def __validate(self, spec_key: str, spec: Spec, obj_key: str, obj: Any):  # noqa: C901
         # Current key is last label of the FQ key
         key = obj_key.split(".")[-1]
 
@@ -221,7 +246,7 @@ class Validator:
 
         return min, max
 
-    def __parse_dict_cardinality(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any) -> tuple[int, int]:
+    def __parse_dict_cardinality(self, spec_key: str, spec: Spec, obj_key: str, obj: Any) -> tuple[int, int]:
         if self.__spec_key("KeyCardinality") in spec:
             # Cardinality is specified - use it for both the min and max values
             return self.__parse_cardinality(spec_key, spec[self.__spec_key("KeyCardinality")], obj_key, obj)
@@ -240,28 +265,28 @@ class Validator:
         # Configurable but not required - min 0, max 1
         return 0, 1
 
-    def __parse_key_length(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any) -> tuple[int, int]:
+    def __parse_key_length(self, spec_key: str, spec: Spec, obj_key: str, obj: Any) -> tuple[int, int]:
         if self.__spec_key("KeyLength") in spec:
             return self.__parse_cardinality(spec_key, spec[self.__spec_key("KeyLength")], obj_key, obj)
         else:
             return 0, 100000
 
-    def __parse_list_length(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any) -> tuple[int, int]:
+    def __parse_list_length(self, spec_key: str, spec: Spec, obj_key: str, obj: Any) -> tuple[int, int]:
         if self.__spec_key("ListLength") in spec:
             return self.__parse_cardinality(spec_key, spec[self.__spec_key("ListLength")], obj_key, obj)
         else:
             return 0, 100000
 
-    def __parse_string_length(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any) -> tuple[int, int]:
+    def __parse_string_length(self, spec_key: str, spec: Spec, obj_key: str, obj: Any) -> tuple[int, int]:
         if self.__spec_key("StringLength") in spec:
             return self.__parse_cardinality(spec_key, spec[self.__spec_key("StringLength")], obj_key, obj)
         else:
             return 0, 100000
 
-    def __is_aws_string(self, spec: dict[str, Any], obj: dict) -> bool:
+    def __is_aws_string(self, spec: Spec, obj: dict) -> bool:
         return isinstance(obj, str) or (isinstance(obj, dict) and len(obj) == 1 and next(iter(obj)) in self.AWS_STRING_FUNCTIONS)
 
-    def __validate_aws_string(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any):
+    def __validate_aws_string(self, spec_key: str, spec: Spec, obj_key: str, obj: Any):
         log.trace("Validating AWS string '{}'".format(obj_key))
 
         # Validate string if object is a string
@@ -281,10 +306,10 @@ class Validator:
             "Expecting a string or an AWS CloudFormation intrinsic function, received {}".format(type(obj).__name__),
         )
 
-    def __is_boolean(self, spec: dict[str, Any], obj: Any) -> bool:
+    def __is_boolean(self, spec: Spec, obj: Any) -> bool:
         return isinstance(obj, bool)
 
-    def __validate_boolean(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any):
+    def __validate_boolean(self, spec_key: str, spec: Spec, obj_key: str, obj: Any):
         log.trace("Validating boolean '{}'".format(obj_key))
 
         # Validate object type
@@ -297,10 +322,10 @@ class Validator:
                 "Expecting boolean, received {}".format(type(obj).__name__),
             )
 
-    def __is_dict(self, spec: dict[str, Any], obj: Any) -> bool:
+    def __is_dict(self, spec: Spec, obj: Any) -> bool:
         return isinstance(obj, dict)
 
-    def __validate_dict(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any):
+    def __validate_dict(self, spec_key: str, spec: Spec, obj_key: str, obj: Any):
         log.trace("Validating dict '{}'".format(obj_key))
         if not isinstance(obj, dict):
             self.__log_validation_error(
@@ -328,7 +353,7 @@ class Validator:
             fq_obj_key = obj_key + "." + unknown_key
             self.__log_validation_error(spec_key, spec, fq_obj_key, obj, f"Unsupported property {unknown_key}")
 
-    def __validate_dict_item(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any) -> list[str]:  # noqa: C901
+    def __validate_dict_item(self, spec_key: str, spec: Spec, obj_key: str, obj: Any) -> list[str]:  # noqa: C901
         # Retrieve all keys matching the spec
         if self.__spec_key("KeyEnum") in spec:
             # Keys in the enum
@@ -389,10 +414,10 @@ class Validator:
 
         return keys
 
-    def __is_eval_boolean(self, spec: dict[str, Any], obj: Any) -> bool:
+    def __is_eval_boolean(self, spec: Spec, obj: Any) -> bool:
         return isinstance(obj, bool) or isinstance(obj, dict) and len(obj) == 1 and next(iter(obj)).startswith("Spec::")
 
-    def __validate_eval_boolean(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any):
+    def __validate_eval_boolean(self, spec_key: str, spec: Spec, obj_key: str, obj: Any):
         log.trace("Validating eval-boolean '{}'".format(obj_key))
 
         # Validate boolean if object is a boolean
@@ -411,10 +436,10 @@ class Validator:
             "Expecting a boolean or eval, received {}".format(type(obj).__name__),
         )
 
-    def __is_float(self, spec: dict[str, Any], obj: Any) -> bool:
+    def __is_float(self, spec: Spec, obj: Any) -> bool:
         return isinstance(obj, (float, int)) or (isinstance(obj, str) and spec.get(self.__spec_key("FloatTypecast"), True))
 
-    def __validate_float(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any):  # noqa: C901
+    def __validate_float(self, spec_key: str, spec: Spec, obj_key: str, obj: Any):  # noqa: C901
         log.trace("Validating float '{}'".format(obj_key))
 
         # Validate object type
@@ -489,21 +514,21 @@ class Validator:
                     "Value must NOT be one of {}, received '{}'".format(enum_values, value),
                 )
 
-    def __is_freeform(self, spec: dict[str, Any], obj: Any) -> bool:
+    def __is_freeform(self, spec: Spec, obj: Any) -> bool:
         return True
 
-    def __validate_freeform(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any):
+    def __validate_freeform(self, spec_key: str, spec: Spec, obj_key: str, obj: Any):
         log.trace("Validating freeform '{}'".format(obj_key))
         # Nothing to do
         return
 
-    def __is_int(self, spec: dict[str, Any], obj: Any) -> bool:
+    def __is_int(self, spec: Spec, obj: Any) -> bool:
         if isinstance(obj, int) or isinstance(obj, str) and spec.get(self.__spec_key("IntTypecast"), True):
             return True
 
         return False
 
-    def __validate_int(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any) -> None:  # noqa: C901
+    def __validate_int(self, spec_key: str, spec: Spec, obj_key: str, obj: Any) -> None:  # noqa: C901
         log.trace("Validating int '{}'".format(obj_key))
 
         # Validate object type
@@ -589,10 +614,10 @@ class Validator:
                     "Value must be a multiple of {}, received '{}'".format(value_multiple, value),
                 )
 
-    def __is_json_string(self, spec: dict[str, Any], obj: Any) -> bool:
+    def __is_json_string(self, spec: Spec, obj: Any) -> bool:
         return isinstance(obj, str)
 
-    def __validate_json_string(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any) -> None:
+    def __validate_json_string(self, spec_key: str, spec: Spec, obj_key: str, obj: Any) -> None:
 
         log.trace("Validating json-string '{}'".format(obj_key))
 
@@ -621,10 +646,10 @@ class Validator:
             )
             return
 
-    def __is_list(self, spec: dict[str, Any], obj: Any) -> bool:
+    def __is_list(self, spec: Spec, obj: Any) -> bool:
         return isinstance(obj, list) or spec.get(self.__spec_key("ListAllowSingular"), False)
 
-    def __validate_list(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any) -> None:
+    def __validate_list(self, spec_key: str, spec: Spec, obj_key: str, obj: Any) -> None:
         log.trace("Validating list '{}'".format(obj_key))
 
         if not isinstance(obj, list) and spec.get(self.__spec_key("ListAllowSingular"), False):
@@ -673,7 +698,7 @@ class Validator:
             fq_obj_key = "{}[{}]".format(obj_key, index)
             self.__validate(spec_key, spec[self.__spec_key("ListItemSpec")], fq_obj_key, item)
 
-    def __validate_multiple(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any) -> None:  # noqa: C901
+    def __validate_multiple(self, spec_key: str, spec: Spec, obj_key: str, obj: Any) -> None:  # noqa: C901
         specs = spec[self.__spec_key("MultipleSpecs")]
         spec_matched = False
         for new_spec in specs:
@@ -731,10 +756,10 @@ class Validator:
                 "Expecting one of [{}], received {}".format(spec_types, type(obj).__name__),
             )
 
-    def __is_scalar(self, spec: dict[str, Any], obj: Any) -> bool:
+    def __is_scalar(self, spec: Spec, obj: Any) -> bool:
         return isinstance(obj, (str, int, bool))
 
-    def __validate_scalar(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any) -> None:
+    def __validate_scalar(self, spec_key: str, spec: Spec, obj_key: str, obj: Any) -> None:
         if isinstance(obj, str):
             return self.__validate_string(spec_key, spec, obj_key, obj)
         elif isinstance(obj, int):
@@ -750,10 +775,10 @@ class Validator:
                 "Expecting a scalar type [bool, int, str], received {}".format(type(obj).__name__),
             )
 
-    def __is_string(self, spec: dict[str, Any], obj: Any) -> bool:
+    def __is_string(self, spec: Spec, obj: Any) -> bool:
         return isinstance(obj, str) or spec.get(self.__spec_key("StringTypecast"), False)
 
-    def __validate_string(self, spec_key: str, spec: dict[str, Any], obj_key: str, obj: Any) -> None:  # noqa: C901
+    def __validate_string(self, spec_key: str, spec: Spec, obj_key: str, obj: Any) -> None:  # noqa: C901
         log.trace("Validating string '{}'".format(obj_key))
 
         # Validate object type

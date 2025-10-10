@@ -103,7 +103,7 @@ def test_sample(sample_name: str, task_payload: TaskPayload):
 
     # set the sample name in the task payload so the handler can find it
     dd = task_payload.deployment_details
-    task_payload.package.set_key(dd, sample_name)
+    task_payload.set_package_key(sample_name)
 
     upload_package(task_payload, sample_name)
 

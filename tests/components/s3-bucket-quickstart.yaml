@@ -4,9 +4,6 @@ my-bucket:
 
   Configuration:
     Bucket:
-      Pipeline::Security:
-        - Allow: [list, read, write, delete]
-          Source: internet
       Properties:
         VersioningConfiguration:
           Status: Enabled
