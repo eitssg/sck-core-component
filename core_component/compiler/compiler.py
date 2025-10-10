@@ -41,19 +41,12 @@ import core_logging as log
 
 from core_renderer import Jinja2Renderer
 
-from ..validator import ComponentDefintionList, ComponentDefintion
+from core_component.compiler.compiler import consumables_path
+
+from ..validator import ComponentDefinitionList, ComponentDefinition
 
 
-# Create the actions renderer.  Templaes are stored relative to this file
-application_path = os.path.join(os.path.dirname(__file__), "application")
-application_renderer = Jinja2Renderer(application_path)
-
-# Create the consumables renderer.  Templates are stored relative to this file
-consumables_path = os.path.join(os.path.dirname(__file__), "consumables")
-consumable_renderer = Jinja2Renderer(consumables_path)
-
-
-def compile_app_files(definitions: ComponentDefintionList, context: Dict[str, Any]) -> Dict[str, Any]:
+def compile_app_files(definitions: ComponentDefinitionList, context: Dict[str, Any]) -> Dict[str, Any]:
     """Compile application-scoped (non-component) actions and files.
 
     Renders predefined application sections (``events`` and ``kms``) into the
@@ -107,6 +100,10 @@ def compile_app_files(definitions: ComponentDefintionList, context: Dict[str, An
     application_files: Dict[str, str] = {}
     try:
 
+        # Create the actions renderer.  Templaes are stored relative to this file
+        application_path = os.path.join(os.path.dirname(__file__), "application")
+        application_renderer = Jinja2Renderer(application_path)
+
         for section in ["events", "kms"]:
             actions_path = os.path.join(section, "actions")
             files_path = os.path.join(section, "files")
@@ -149,7 +146,7 @@ def compile_app_files(definitions: ComponentDefintionList, context: Dict[str, An
         }
 
 
-def render_component(component_name: str, definitions: ComponentDefintionList, context: Dict[str, Any]) -> Dict[str, Any]:
+def render_component(component_name: str, definitions: ComponentDefinitionList, context: Dict[str, Any]) -> Dict[str, Any]:
     """Render a single component's actions, files, and userfiles.
 
     Discovers the component template root by splitting its fully-qualified
@@ -168,7 +165,7 @@ def render_component(component_name: str, definitions: ComponentDefintionList, c
         A failure in any stage returns an ``error`` envelope with stack trace.
     """
     # Extract current component definition
-    definition: ComponentDefintion = definitions[component_name]
+    definition: ComponentDefinition = definitions[component_name]
 
     # Generate PRNs
     prns = __generate_prns(context, component_name)
@@ -178,6 +175,11 @@ def render_component(component_name: str, definitions: ComponentDefintionList, c
     facts = context[CTX_CONTEXT]
 
     try:
+
+        # Create the consumables renderer.  Templates are stored relative to this file
+        consumables_path = os.path.join(os.path.dirname(__file__), "consumables")
+        consumable_renderer = Jinja2Renderer(consumables_path)
+
         component_key_prefix = sep.join([facts["ArtefactsPrefix"], component_name])
         component_url_prefix = sep.join([facts["ArtefactsBucketUrl"], component_key_prefix])
 

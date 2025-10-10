@@ -14,12 +14,12 @@ are documented for Sphinx technical reference generation (Google/Napoleon style)
 """
 
 from copy import deepcopy
-from turtle import st
 from typing import Any, Dict
 import os
 import re
 import jmespath
 import traceback
+import tempfile
 from datetime import datetime
 
 import core_logging as log
@@ -33,7 +33,7 @@ from core_helper.magic import MagicS3Client
 from core_db.dbhelper import register_item, update_status, update_item
 from core_db.facter import get_facts
 
-from core_component.validator.validator import ComponentDefintionList
+from core_component.validator.validator import ComponentDefinitionList
 
 from .preprocessor import load_user_variables, render_component_defintitions
 from .compiler import (
@@ -41,7 +41,7 @@ from .compiler import (
     compile_app_files,
     render_component,
 )
-from .validator import validate_component, ComponentDefintion
+from .validator import validate_component, ComponentDefinition
 
 
 def handler(event: dict, context: dict | None) -> dict:
@@ -160,7 +160,7 @@ def execute(task_payload: TaskPayload) -> dict:
 
         context: dict[str, Any] = __create_context(task_payload, facts, package_file_path)
 
-        definitions: ComponentDefintionList = render_component_defintitions(package_file_path, context)
+        definitions: ComponentDefinitionList = render_component_defintitions(package_file_path, context)
 
         # Register the components into the Database that will are defined in this deployment
         __register_components(task_payload, definitions, context)
@@ -258,7 +258,7 @@ def __create_context(task_payload: TaskPayload, facts: dict[str, Any], package_f
         raise Exception(exception_message)
 
 
-def __register_components(task_payload: TaskPayload, definitions: ComponentDefintionList, context: dict[str, Any]):
+def __register_components(task_payload: TaskPayload, definitions: ComponentDefinitionList, context: dict[str, Any]):
     """Register each component definition.
 
     Updates the build record metadata with full context, then iterates through all
@@ -302,7 +302,9 @@ def __register_components(task_payload: TaskPayload, definitions: ComponentDefin
         )
 
 
-def __compile_components(task_payload: TaskPayload, definitions: ComponentDefintionList, context: dict[str, Any]) -> dict[str, Any]:
+def __compile_components(
+    task_payload: TaskPayload, definitions: ComponentDefinitionList, context: dict[str, Any]
+) -> dict[str, Any]:
     """Validate and compile component definitions.
 
     Performs validation (enforcement conditional on configuration), renders each
@@ -465,8 +467,6 @@ def __download_package(package: PackageDetails) -> str:
         ValueError: If the package key is missing.
         Exception: Propagates any underlying download errors after cleanup.
     """
-    import tempfile
-
     bucket_name = package.bucket_name
     bucket_region = package.bucket_region
     version_id = package.version_id
@@ -490,7 +490,7 @@ def __download_package(package: PackageDetails) -> str:
     if package.version_id is not None:
         extra_args["VersionId"] = version_id
 
-    # Create temporary file
+    # Create temporary file using the name of the package for easier debugging
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
     temp_file_path = temp_file.name
     temp_file.close()
@@ -549,7 +549,7 @@ def __upload_compiled_files(task_payload: TaskPayload, files: dict[str, str]) ->
     return result
 
 
-def __get_component_image(definition: ComponentDefintion, image_aliases: dict[str, Any]) -> tuple[str | None, str | None]:
+def __get_component_image(definition: ComponentDefinition, image_aliases: dict[str, Any]) -> tuple[str | None, str | None]:
     """Resolve an image alias defined inside a component's configuration tree.
 
     Searches nested ``Configuration.*.Properties.ImageId.Fn::Pipeline::ImageId.Name``
@@ -581,7 +581,7 @@ def __get_component_image(definition: ComponentDefintion, image_aliases: dict[st
     return None, None
 
 
-def __validate_definitions(deployment_details: DeploymentDetails, definitions: ComponentDefintionList) -> dict:
+def __validate_definitions(deployment_details: DeploymentDetails, definitions: ComponentDefinitionList) -> dict:
     """Validate each component definition.
 
     Issues component-level status updates. When enforcement is enabled any validation
@@ -692,7 +692,7 @@ def __validate_definitions(deployment_details: DeploymentDetails, definitions: C
 
 def __compile_component_definitions(
     deployment_details: DeploymentDetails,
-    definitions: ComponentDefintionList,
+    definitions: ComponentDefinitionList,
     context: dict[str, Any],
 ) -> Dict[str, Dict[str, Any]]:
     """Render component definitions into final artefact representations.

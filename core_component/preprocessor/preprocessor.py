@@ -55,13 +55,13 @@ import core_logging as log
 
 from core_renderer import Jinja2Renderer
 
-from ..validator import ComponentDefintionList
+from ..validator import ComponentDefinitionList
 
-DEFINITION_FILE_PATTERN = r"components/[^/\\]+\.yaml$"
-VARS_FILE_PATTERN = r"vars/[^/\\]+\.yaml$"
+DEFINITION_FILE_PATTERN = r"components/[^/\\]+\.yaml(?:.j2)?$"
+VARS_FILE_PATTERN = r"vars/[^/\\]+\.yaml(?:.j2)?$"
 
 
-def render_component_defintitions(package_file_path: str, context: dict[str, Any]) -> ComponentDefintionList:
+def render_component_defintitions(package_file_path: str, context: dict[str, Any]) -> ComponentDefinitionList:
     """Render all component definition YAML files.
 
     Iterates over ``components/*.yaml`` entries in the deployment package
@@ -91,7 +91,7 @@ def render_component_defintitions(package_file_path: str, context: dict[str, Any
 
     definitions_pattern = re.compile(DEFINITION_FILE_PATTERN)
 
-    definitions: ComponentDefintionList = {}
+    definitions: ComponentDefinitionList = {}
 
     with zipfile.ZipFile(package_file_path, "r") as zip_file:
         for filename in zip_file.namelist():

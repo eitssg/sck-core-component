@@ -1,9 +1,0 @@
-my-bucket:
-  Type: AWS::S3::Bucket
-  Persist: true
-
-  Configuration:
-    Bucket:
-      Properties:
-        VersioningConfiguration:
-          Status: Enabled

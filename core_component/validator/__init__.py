@@ -2,13 +2,13 @@ import os
 import traceback
 
 from .spec_library import SpecLibrary, Spec, SpecList
-from .validator import Validator, ComponentDefintion, ComponentDefintionList
+from .validator import Validator, ComponentDefinition, ComponentDefinitionList
 
 # Load the component compiler specs library
 spec_library: SpecLibrary = SpecLibrary()
 
 
-def validate_component(component_name: str, definition: ComponentDefintion) -> dict:
+def validate_component(component_name: str, definition: ComponentDefinition) -> dict:
     try:
 
         if definition is None:
