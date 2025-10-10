@@ -40,6 +40,7 @@ from core_framework.constants import CTX_COMPONENT_NAME, CTX_CONTEXT, CTX_APP, C
 import core_logging as log
 
 from core_renderer import Jinja2Renderer
+from jinja2 import TemplateError, UndefinedError
 
 # Create the actions renderer.  Templaes are stored relative to this file
 application_path = os.path.join(os.path.dirname(__file__), "application")
@@ -249,6 +250,24 @@ def render_component(component_name: str, definitions: dict, context: dict) -> d
             "Details": {},
             "Actions": component_actions,
             "Files": component_files,
+        }
+
+    except UndefinedError as e:
+        result = {
+            "Status": "error",
+            "Message": f"Undefined variable in {component_name}: {str(e)}",
+            "Details": {"StackTrace": traceback.format_exc()},
+        }
+
+    except TemplateError as e:
+        result = {
+            "Status": "error",
+            "Message": f"Template error in {component_name}: {e.message}",
+            "Details": {
+                "Template": e.template_name,
+                "LineNumber": e.lineno,
+                "StackTrace": traceback.format_exc(),
+            },
         }
 
     except Exception as e:
