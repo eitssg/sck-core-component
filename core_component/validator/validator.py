@@ -6,7 +6,7 @@ import traceback
 
 from .spec_library import Spec
 
-ComponentDefintion = Dict[str, Any]
+ComponentDefinition = Dict[str, Any]
 """ Component Definition is a Core SCK component resource definition
 
 >>>
@@ -17,7 +17,7 @@ Configuration:
     Status: Enabled
 """
 
-ComponentDefintionList = Dict[str, ComponentDefintion]
+ComponentDefinitionList = Dict[str, ComponentDefinition]
 """ Component Definition list is a mapping of component name to component resource definition
 
 >>>
@@ -44,12 +44,12 @@ class Validator:
 
     spec: Spec
     definition_name: str
-    definition: ComponentDefintion
+    definition: ComponentDefinition
     validation_errors: list[dict[str, Any]]
     validation_warnings: list[dict[str, Any]]
     meta_prefix: str
 
-    def __init__(self, definition_name: str, definition: ComponentDefintion, spec: Spec, meta_prefix: str = "_"):
+    def __init__(self, definition_name: str, definition: ComponentDefinition, spec: Spec, meta_prefix: str = "_"):
         self.spec = spec
         self.definition_name = definition_name
         self.definition = definition
