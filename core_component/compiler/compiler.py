@@ -42,8 +42,6 @@ import core_logging as log
 from core_renderer import Jinja2Renderer
 from jinja2 import TemplateError, UndefinedError
 
-from core_component.compiler.compiler import consumables_path
-
 from ..validator import ComponentDefinitionList, ComponentDefinition
 
 
