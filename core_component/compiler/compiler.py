@@ -30,7 +30,7 @@ Notes:
             for Sphinx technical reference.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, List, Set
 import os
 import traceback
 
@@ -235,43 +235,50 @@ def render_component(component_name: str, definitions: ComponentDefinitionList, 
         files_path = os.path.join(base_path, "files")
         userfiles_path = os.path.join(base_path, "userfiles")
 
-        # Render actions
-        component_actions: Dict[str, str] = consumable_renderer.render_files(actions_path, render_context)
+        # Analyze actions
+        actions_result = consumable_renderer.analyze_files(actions_path, render_context)
+        component_actions: Dict[str, str] = actions_result["files"]
+        all_undefined = actions_result["undefined"]
 
-        # Render files
-        component_files: Dict[str, str] = consumable_renderer.render_files(files_path, render_context)
+        # Analyze files
+        files_result = consumable_renderer.analyze_files(files_path, render_context)
+        component_files: Dict[str, str] = files_result["files"]
         component_files = {("{}/{}".format(component_name, k)): v for k, v in component_files.items()}
+        all_undefined.extend(files_result["undefined"])
 
-        # Render userfiles
-        component_userfiles: Dict[str, str] = consumable_renderer.render_files(userfiles_path, render_context)
+        # Analyze userfiles
+        userfiles_result = consumable_renderer.analyze_files(userfiles_path, render_context)
+        component_userfiles: Dict[str, str] = userfiles_result["files"]
         component_userfiles = {("{}/userfiles/{}".format(component_name, k)): v for k, v in component_userfiles.items()}
         component_files.update(component_userfiles)
+        all_undefined.extend(userfiles_result["undefined"])
 
-        result = {
-            "Status": "ok",
-            "Message": "Component compilation successful",
-            "Details": {},
-            "Actions": component_actions,
-            "Files": component_files,
-        }
+        # Deduplicate undefineds across all
+        seen: Set[str] = set()
+        uniq_undefined = []
+        for e in all_undefined:
+            key = f"{e.get('file')}:{e.get('path')}"
+            if key in seen:
+                continue
+            seen.add(key)
+            uniq_undefined.append(e)
 
-    except UndefinedError as e:
-        result = {
-            "Status": "error",
-            "Message": f"Undefined variable in {component_name}: {str(e)}",
-            "Details": {"StackTrace": traceback.format_exc()},
-        }
-
-    except TemplateError as e:
-        result = {
-            "Status": "error",
-            "Message": f"Template error in {component_name}: {e.message}",
-            "Details": {
-                "Template": e.template_name,
-                "LineNumber": e.lineno,
-                "StackTrace": traceback.format_exc(),
-            },
-        }
+        if uniq_undefined:
+            result = {
+                "Status": "error",
+                "Message": "Undefined variables found during component compilation",
+                "Details": {"Undefined": uniq_undefined},
+                "Actions": component_actions,
+                "Files": component_files,
+            }
+        else:
+            result = {
+                "Status": "ok",
+                "Message": "Component compilation successful",
+                "Details": {},
+                "Actions": component_actions,
+                "Files": component_files,
+            }
 
     except Exception as e:
         result = {

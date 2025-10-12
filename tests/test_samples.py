@@ -231,17 +231,18 @@ def load_sample(sample_name: str) -> str:
 
 def download_result(task_payload: TaskPayload, sample_name: str):
 
-    package = task_payload.package
+    artefacts = task_payload.state
 
     dirname = os.path.dirname(os.path.realpath(__file__))
     result_dir = os.path.join(dirname, "results")
     os.makedirs(result_dir, exist_ok=True)
     fn = os.path.join(result_dir, sample_name + ".result.yaml")
 
-    log.info("Downloading result", details=package.model_dump())
+    log.info("Downloading result", details=artefacts.model_dump())
 
-    bucket: MagicBucket = MagicS3Client().get_bucket(BucketName=package.bucket_name, Region=package.bucket_region)
-    # bucket.download_file(Key=package.key + ".result.yaml", Filename=fn)
+    bucket: MagicBucket = MagicS3Client().get_bucket(BucketName=artefacts.bucket_name, Region=artefacts.bucket_region)
+    prefix = artefacts.key
+    # bucket.download_file(Key=artefacts.key + ".result.yaml", Filename=fn)
 
 
 @pytest.mark.parametrize("sample_name", samples)
