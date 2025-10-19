@@ -1,3 +1,4 @@
+import io
 import pytest
 import os
 import re
@@ -15,36 +16,6 @@ from core_component.handler import handler
 
 from .data_for_testing import initialize
 from .bootstrap import bootstrap_dynamo
-
-
-@pytest.fixture(scope="module")
-def arguments():
-    """Simulate commandline arguments parsing."""
-
-    client = util.get_client()  # from the --client paramter
-
-    task = "compile"  # from the "command" positional parameter "compile" phase
-    portfolio = "my-portfolio"  # from the -p, --portfolio parameter
-    app = "my-app"  # from the -a, --app parameter
-    branch = "my-branch"  # from the -b --branch parameter
-    build = "pipe-build"  # from the -i, --build parameter
-    automation_type = "pipeline"  # from the --automation-type parameter
-
-    # commandline example:
-
-    # core --client my-client compile -p my-portfolio -a my-app -b my-branch -i dp-build --automation-type deployspec
-
-    state = {
-        "client": client,
-        "task": task,
-        "portfolio": portfolio,
-        "app": app,
-        "branch": branch,
-        "build": build,
-        "automation_type": automation_type,
-    }
-
-    return state
 
 
 def delete_component_files():
@@ -121,12 +92,19 @@ def package_sample(sample_name: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def task_payload(arguments: dict) -> TaskPayload:
-
-    assert isinstance(arguments, dict)
+def task_payload() -> TaskPayload:
 
     # Typical lifecycle is: -> package -> upload -> compile -> deploy -> teardown
     # This is the "deploy" step
+    arguments = {
+        "client_id": "client-id-12345",
+        "client": "test-client",
+        "portfolio": "test-portfolio",
+        "app": "test-app",
+        "branch": "main",
+        "build": "001",
+        "task": "deploy",
+    }
 
     task_payload = TaskPayload.from_arguments(**arguments)
 
@@ -164,9 +142,9 @@ def upload_package(task_payload: TaskPayload, sample_name: str) -> PackageDetail
 
 
 @pytest.fixture(scope="module")
-def facts(task_payload: TaskPayload, arguments: dict, bootstrap_dynamo):
+def facts(task_payload: TaskPayload, bootstrap_dynamo):
 
-    cf, zf, pf, af = initialize(arguments)
+    cf, zf, pf, af = initialize()
 
     deployment_details = task_payload.deployment_details
 
@@ -229,20 +207,72 @@ def load_sample(sample_name: str) -> str:
     return data
 
 
+def lint_cfn(cfn_string: str | bytes) -> list:
+
+    from cfnlint import api
+
+    if isinstance(cfn_string, bytes):
+        content = cfn_string.decode("utf-8")
+    else:
+        content = cfn_string
+
+    if not content:
+        return []
+
+    return api.lint(content)
+
+
+def boto3_cfn_verify(cfn_string: str) -> bool:
+
+    import core_helper.aws as aws
+    from botocore.exceptions import ClientError
+
+    client = aws.cfn_client()
+
+    try:
+        client.validate_template(TemplateBody=cfn_string)
+        return True
+    except ClientError as e:
+        log.error("CloudFormation template validation failed", details={"error": str(e)})
+        return False
+    except Exception as e:
+        log.error("Unexpected error during CloudFormation template validation", details={"error": str(e)})
+        return False
+
+
 def download_result(task_payload: TaskPayload, sample_name: str):
 
-    artefacts = task_payload.state
+    dd = task_payload.deployment_details
 
-    dirname = os.path.dirname(os.path.realpath(__file__))
-    result_dir = os.path.join(dirname, "results")
-    os.makedirs(result_dir, exist_ok=True)
-    fn = os.path.join(result_dir, sample_name + ".result.yaml")
+    log.info("Downloading result", details=dd.model_dump())
 
-    log.info("Downloading result", details=artefacts.model_dump())
+    bucket_name = dd.get_artefact_bucket_name()
+    region = dd.get_artefact_bucket_region()
+    prefix = dd.get_artefacts_key()
 
-    bucket: MagicBucket = MagicS3Client().get_bucket(BucketName=artefacts.bucket_name, Region=artefacts.bucket_region)
-    prefix = artefacts.key
-    # bucket.download_file(Key=artefacts.key + ".result.yaml", Filename=fn)
+    bucket: MagicBucket = MagicS3Client().get_bucket(BucketName=bucket_name, Region=region)
+    assert isinstance(bucket, MagicBucket)
+
+    result = bucket.list_objects_v2(Prefix=prefix)
+    assert isinstance(result, dict)
+
+    keys = [item["Key"] for item in result.get("Contents", []) if item["Key"].endswith(".yaml")]
+    assert len(keys) > 0
+
+    for key in keys:
+        data = io.BytesIO()
+
+        object_key = os.path.join(prefix, key)
+
+        bucket.download_fileobj(Key=object_key, Fileobj=data)
+        cfn_string = data.getvalue().decode("utf-8")
+
+        # Let's practice linting our output and see what cfn-lint says
+        errors = lint_cfn(cfn_string)
+
+        valid = boto3_cfn_verify(cfn_string)
+
+        log.info("Downloaded result %s", key, details=cfn_string)
 
 
 @pytest.mark.parametrize("sample_name", samples)

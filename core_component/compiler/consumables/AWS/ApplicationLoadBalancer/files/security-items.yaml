@@ -7,12 +7,11 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Load balancer security group
-      VpcId:
-        {% if (app[component_name].Configuration.ApplicationLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:VpcId"
-        {% else %}
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
-        {% endif %}
+      VpcId: {% if (app[component_name].Configuration.ApplicationLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' -%}
+        {{ context.VpcAliases['public'].VpcId }}
+        {%- else -%}
+        {{ context.VpcAliases['private'].VpcId }}
+        {%- endif %}
 
 Outputs:
   DefaultExport:
