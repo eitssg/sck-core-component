@@ -10,7 +10,7 @@ Resources:
     Properties:
       GroupDescription: Instance security group
       VpcId:
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {{ context.VpcAliases['private'].VpcId }}
 
   Role:
     Type: AWS::IAM::Role

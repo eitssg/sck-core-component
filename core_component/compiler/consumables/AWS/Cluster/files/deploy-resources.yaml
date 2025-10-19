@@ -54,11 +54,9 @@ Resources:
         {{ resource.Properties.LifecycleHookSpecificationList | to_yaml | indent(8) }}
       {% endif %}
       VPCZoneIdentifier:
-        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
-        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}2Id"
-        {% if context.AzCount >= 3 %}
-        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}3Id"
-        {% endif %}
+        {%- for subnet in context.SubnetAliases['private'] %}
+        - {{ subnet.SubnetId }}
+        {%- endfor %}
       MetricsCollection:
         - Granularity: 1Minute
 

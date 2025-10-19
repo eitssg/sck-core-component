@@ -77,11 +77,9 @@ Resources:
           - Fn::ImportValue:
               Fn::Sub: "${SecurityStackName}:SecurityGroupId"
         SubnetIds:
-          - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
-          - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}2Id"
-          {% if context.AzCount >= 3 %}
-          - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}3Id"
-          {% endif %}
+          {%- for subnet in context.SubnetAliases['private'] %}
+          - {{ subnet.SubnetId }}
+          {%- endfor %}
       {% endif %}
       {% if resource.Properties.Layers is defined and resource.Properties.Layers == True %}
       Layers:

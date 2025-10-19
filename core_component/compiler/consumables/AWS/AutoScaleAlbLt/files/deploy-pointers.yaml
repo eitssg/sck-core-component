@@ -36,7 +36,7 @@ Resources:
               Fn::ImportValue: {{ context.ResourceNamespace | d('core-network') }}:RegionalHostedZoneName
       Type: A
 
-  {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+  {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' -%}
   # Public Deployment DNS
   PublicDeploymentDnsRecord:
     Type: AWS::Route53::RecordSet
@@ -96,7 +96,7 @@ Outputs:
 
   PublicDeploymentDns:
     Value:
-      {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+      {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' -%}
       Ref: PublicDeploymentDnsRecord
       {% else %}
       "none"

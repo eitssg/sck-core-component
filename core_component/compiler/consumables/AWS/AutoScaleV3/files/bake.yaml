@@ -129,11 +129,11 @@ Resources:
         - Fn::ImportValue: "{{ rule.Value }}"   # {{ rule.Description }}
         {% endfor %}
       SubnetId:
-        {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['app'] }}1Id"
-        {% else %}
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
-        {% endif %}
+        {%- if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' -%}
+        {{ context.SubnetAliases['public'][0].SubnetId }}
+        {%- else %}
+        {{ context.SubnetAliases['private'][0].SubnetId }}
+        {%- endif %}
       UserData:
         Fn::Base64:
           Fn::Sub: |

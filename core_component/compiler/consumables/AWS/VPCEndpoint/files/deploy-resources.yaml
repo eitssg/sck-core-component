@@ -28,7 +28,7 @@ Resources:
             Fn::Sub: "${SecurityStackName}:SecurityGroupId"
       {% else %}
       SecurityGroupIds:
-        - Fn::ImportValue: "core-network-{{ context.Environment }}:ProxyNatDnsVpc:VpcEndpointSecurityGroup"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}:ProxyNatDnsVpc:VpcEndpointSecurityGroup"
       {% endif %}
       {% if 's3' in resource.Properties.ServiceName %}
       ServiceName: com.amazonaws.{{ context.AwsRegion }}.s3
@@ -41,10 +41,10 @@ Resources:
       SubnetIds: {{ resource.Properties.SubnetIds }}
       {% else %}
       SubnetIds:
-        - Fn::ImportValue: "core-network-{{ context.Environment }}:ProxyNatDnsVpc:ProxyExtSubnet1Id"
-        - Fn::ImportValue: "core-network-{{ context.Environment }}:ProxyNatDnsVpc:ProxyExtSubnet2Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}:ProxyNatDnsVpc:ProxyExtSubnet1Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}:ProxyNatDnsVpc:ProxyExtSubnet2Id"
       {% if context.AzCount >= 3 %}
-        - Fn::ImportValue: "core-network-{{ context.Environment }}:ProxyNatDnsVpc:ProxyExtSubnet3Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}:ProxyNatDnsVpc:ProxyExtSubnet3Id"
       {% endif %}
       {% endif %}
       VpcEndpointType: Interface
@@ -52,7 +52,7 @@ Resources:
       VpcId: {{ resource.Properties.VpcId | to_yaml }}
       {% else %}
       VpcId:
-        Fn::ImportValue: "core-network-{{ context.Environment }}:ProxyNatDnsVpc:VpcId"
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}:ProxyNatDnsVpc:VpcId"
       {% endif %}
 
   VpcEndPointRecord:
@@ -60,7 +60,7 @@ Resources:
     Properties:
       HostedZoneId:
         Fn::ImportValue:
-          Fn::Sub: 'core-network-{{ context.Environment }}:HostedZoneId'
+          Fn::Sub: '{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}:HostedZoneId'
       RecordSets:
         {% if resource.Properties.Aliases is defined %}
         {% for alias in resource.Properties.Aliases %}
@@ -75,7 +75,7 @@ Resources:
           - '{{ component_name }}-vpce.pnd.{{ context.Environment }}.aws.sg.simplegroup.net'
           - Domain:
               Fn::ImportValue:
-                Fn::Sub: 'core-network-{{ context.Environment }}:HostedZoneName'
+                Fn::Sub: '{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}:HostedZoneName'
           Type: A
           AliasTarget:
             DNSName: !Select ['1', !Split [ ':', !Select ['0', !GetAtt "VPCEndpoint.DnsEntries"]]]

@@ -116,8 +116,7 @@ Resources:
         {% for rule in resource | ip_rules(source_types=['sg-attachment']) %}
         - Fn::ImportValue: "{{ rule.Value }}"   # {{ rule.Description }}
         {% endfor %}
-      SubnetId:
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
+      SubnetId: {{ context.SubnetAliases['private'][0].SubnetId }}
       UserData:
         Fn::Base64:
           Fn::Sub: |

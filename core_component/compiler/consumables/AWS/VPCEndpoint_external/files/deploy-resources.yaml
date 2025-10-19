@@ -27,14 +27,14 @@ Resources:
             Fn::Sub: "${SecurityStackName}:SecurityGroupId"
       ServiceName: com.amazonaws.vpce.{{ context.AwsRegion }}.{{ resource.Properties.ServiceName }}
       SubnetIds:
-        - Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:PrivateSubnet1Id"
-        - Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:PrivateSubnet2Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}-dmz:DmzVpc:PrivateSubnet1Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}-dmz:DmzVpc:PrivateSubnet2Id"
         {% if context.AzCount >= 3 %}
-        - Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:PrivateSubnet3Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}-dmz:DmzVpc:PrivateSubnet3Id"
         {% endif %}
       VpcEndpointType: Interface
       VpcId: 
-        Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:VpcId"
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}-dmz:DmzVpc:VpcId"
     # Developer needs to define "DefaultTargetGroup" for the default TG to be invoked.
 
   NLBTargetGroup:
@@ -48,7 +48,7 @@ Resources:
       {% endif %}
       Protocol: TCP
       VpcId:
-        Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:VpcId"
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}-dmz:DmzVpc:VpcId"
       TargetType: ip
       Targets:
         - Id: !GetAtt GetPrivateIPs.IP0
@@ -152,7 +152,7 @@ Resources:
       Port: {{ resource.Properties.Port | d(443) }}
       Protocol: {{ resource.Properties.Protocol }}
       VpcId:
-        Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:VpcId"
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}-dmz:DmzVpc:VpcId"
       {% if resource.Properties.TargetGroupAttributes is defined %}
       TargetGroupAttributes:
         {{ resource.Properties.TargetGroupAttributes | to_yaml | indent(8) }}
@@ -169,10 +169,10 @@ Resources:
         {{ resource.Properties.LoadBalancerAttributes | to_yaml | indent(8) }}
       # {% endif %}
       Subnets:
-        - Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:PublicSubnet1Id"
-        - Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:PublicSubnet2Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}-dmz:DmzVpc:PublicSubnet1Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}-dmz:DmzVpc:PublicSubnet2Id"
         {% if context.AzCount >= 3 %}
-        - Fn::ImportValue: "core-network-{{ context.Environment }}-dmz:DmzVpc:PublicSubnet3Id"
+        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}-dmz:DmzVpc:PublicSubnet3Id"
         {% endif %}
       Type: network
       SecurityGroups: 

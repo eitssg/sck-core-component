@@ -14,7 +14,7 @@ Resources:
       VpcId: {{ resource.Properties.VpcId }}
       {% else %}
       VpcId:
-        Fn::ImportValue: "core-network-{{ context.Environment }}:ProxyNatDnsVpc:VpcId"
+        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}:ProxyNatDnsVpc:VpcId"
       {% endif %}
 
 Outputs:
