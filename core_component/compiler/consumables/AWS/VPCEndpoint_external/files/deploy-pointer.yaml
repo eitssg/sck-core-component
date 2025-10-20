@@ -16,7 +16,7 @@ Parameters:
     Properties:
       HostedZoneId:
         Fn::ImportValue:
-          Fn::Sub: 'core-network-{{ context.Environment }}:PublicOnlyHostedZoneId'
+          Fn::Sub: '{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}:PublicOnlyHostedZoneId'
       RecordSets:
         {% if resource.Properties.Aliases is defined %}
         {% for alias in resource.Properties.Aliases %}
@@ -31,8 +31,8 @@ Parameters:
           - '{{ component_name }}.pnd.{{ context.Environment }}.aws.simple.com'
           - Domain:
               Fn::ImportValue:
-                Fn::Sub: 'core-network-{{ context.Environment }}:PublicOnlyRootHostedZoneName'
+                Fn::Sub: '{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}:PublicOnlyRootHostedZoneName'
           Type: A
           AliasTarget:
             DNSName: !Sub: "${ResourcesStackName}:LoadBalancerDnsName"
-            HostedZoneId: !ImportValue: !Sub 'core-network-{{ context.Environment }}:PublicOnlyHostedZoneId'
+            HostedZoneId: !ImportValue: !Sub '{{ context.ResourceNamespace | d('core-network') }}-{{ context.Environment }}:PublicOnlyHostedZoneId'

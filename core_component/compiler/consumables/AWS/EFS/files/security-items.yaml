@@ -9,7 +9,7 @@ Resources:
     Properties:
       GroupDescription: Mount Targets Security Group
       VpcId:
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {{ context.VpcAliases['private'].VpcId }}
 
 Outputs:
 

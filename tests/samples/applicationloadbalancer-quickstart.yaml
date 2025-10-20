@@ -6,7 +6,7 @@ alb:
     - nodelambda
   Persist: false
   Configuration:
-
+    
     ApplicationLoadBalancer:
       Pipeline::Security:
         - Source: [intranet]

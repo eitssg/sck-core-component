@@ -21,10 +21,10 @@ Resources:
       Port: 80
       Protocol: TCP
       VpcId:
-        {% if (app[component_name].Configuration.NetworkLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:VpcId"
+        {% if (app[component_name].Configuration.NetworkLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' -%}
+        {{ context.VpcAliases['public'].VpcId }}
         {% else %}	
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {{ context.VpcAliases['private'].VpcId }}
         {% endif %}
   {% endif %}
 
@@ -54,10 +54,10 @@ Resources:
       Port: {{ resource.Properties.Port }}
       Protocol: {{ resource.Properties.Protocol }}
       VpcId:
-        {% if (app[component_name].Configuration.NetworkLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:VpcId"
+        {% if (app[component_name].Configuration.NetworkLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' -%}
+        {{ context.VpcAliases['public'].VpcId }}
         {% else %}
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {{ context.VpcAliases['private'].VpcId }}
         {% endif %}
       {% if resource.Properties.TargetGroupAttributes is defined %}
       TargetGroupAttributes:
@@ -76,19 +76,15 @@ Resources:
       {% endif %}
       Scheme: {{ resource.Properties.Scheme | d('internal') }}
       Subnets:
-        {% if (app[component_name].Configuration.NetworkLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
-        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['public'] }}1Id"
-        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['public'] }}2Id"
-        {% if context.AzCount >= 3 %}
-        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:{{ context.SubnetAliases['public'] }}3Id"
-        {% endif %}
-        {% else %}
-        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
-        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}2Id"
-        {% if context.AzCount >= 3 %}
-        - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}3Id"
-        {% endif %}
-        {% endif %}
+        {%- if (app[component_name].Configuration.NetworkLoadBalancer.Properties.Scheme | d('internal')) == 'internet-facing' -%}
+        {%- for subnet in context.SubnetAliases['public'] %}
+        - {{ subnet.SubnetId }}
+        {%- endfor %} 
+        {%- else %}
+        {%- for subnet in context.SubnetAliases['private'] %}
+        - {{ subnet.SubnetId }}
+        {%- endfor %}
+        {%- endif %}
       Type: network
 
   # Load balancer listeners (i.e. TCP, TLS)

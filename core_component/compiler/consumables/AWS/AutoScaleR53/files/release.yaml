@@ -28,7 +28,7 @@ Resources:
       Type: CNAME
       TTL: 60
 
-  {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+  {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' -%}
   PublicReleaseDnsRecord:
     Type: AWS::Route53::RecordSet
     Properties:
@@ -68,7 +68,7 @@ Outputs:
 
   PublicReleaseDns:
     Value:
-      {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
+      {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' -%}
       Ref: PublicReleaseDnsRecord
       {% else %}
       "none"

@@ -23,7 +23,7 @@ Resources:
     Properties:
       GroupDescription: Security group
       VpcId:
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {{ context.VpcAliases['private'].VpcId }}
 
 Outputs:
   DefaultExport:

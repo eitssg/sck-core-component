@@ -12,10 +12,10 @@ Resources:
     Properties:
       GroupDescription: Load balancer security group
       VpcId:
-        {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:VpcId"
+        {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' -%}
+        {{ context.VpcAliases['public'].VpcId }}
         {% else %}
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {{ context.VpcAliases['private'].VpcId }}
         {% endif %}
 
   SecurityGroup:
@@ -23,10 +23,10 @@ Resources:
     Properties:
       GroupDescription: Instance security group
       VpcId:
-        {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' %}
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['public'] }}:VpcId"
+        {% if (load_balancer.Properties.Scheme | d('internal')) == 'internet-facing' -%}
+        {{ context.VpcAliases['public'].VpcId }}
         {% else %}
-        Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:VpcId"
+        {{ context.VpcAliases['private'].VpcId }}
         {% endif %}
 
   Role:

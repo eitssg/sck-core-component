@@ -28,11 +28,9 @@ Resources:
     Properties:
       BrokerNodeGroupInfo:
         ClientSubnets:
-              - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
-              - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}2Id"
-              {% if context.AzCount >= 3 %}
-              - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}3Id"
-              {% endif %}
+          {%- for subnet in context.SubnetAliases['private'] %}
+          - {{ subnet.SubnetId }}
+          {%- endfor %}
         SecurityGroups:
           - Fn::ImportValue:
               Fn::Sub: "${SecurityStackName}:MSKSecurityGroupId"
@@ -74,11 +72,9 @@ Resources:
     Properties:
       VpcConfigs:
         - SubnetIds:
-            - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}1Id"
-            - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}2Id"
-            {% if context.AzCount >= 3 %}
-            - Fn::ImportValue: "{{ context.ResourceNamespace | d('core-network') }}:{{ context.VpcAliases['private'] }}:{{ context.SubnetAliases['private'] }}3Id"
-            {% endif %}
+            {%- for subnet in context.SubnetAliases['private'] %}
+            - {{ subnet.SubnetId }}
+            {%- endfor %}
           SecurityGroups:
             - Fn::ImportValue:
                Fn::Sub: "${SecurityStackName}:MSKSecurityGroupId"
