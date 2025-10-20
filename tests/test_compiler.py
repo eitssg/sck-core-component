@@ -25,7 +25,7 @@ from .bootstrap import *  # noqa: F401
 def arguments():
     """Simulate commandline arguments parsing."""
 
-    client = util.get_client()  # from the --client paramter
+    client = "core"
 
     task = "compile"  # from the "command" positional parameter "compile" phase
     portfolio = "my-portfolio"  # from the -p, --portfolio parameter
@@ -38,7 +38,8 @@ def arguments():
 
     # core --client my-client compile -p my-portfolio -a my-app -b my-branch -i dp-build --automation-type deployspec
 
-    state = {
+    # return command-line arguments as a dict
+    return {
         "client": client,
         "task": task,
         "portfolio": portfolio,
@@ -47,8 +48,6 @@ def arguments():
         "build": build,
         "automation_type": automation_type,
     }
-
-    return state
 
 
 def delete_component_files():

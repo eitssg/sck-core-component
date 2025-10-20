@@ -280,6 +280,19 @@ def render_component(component_name: str, definitions: ComponentDefinitionList, 
                 "Files": component_files,
             }
 
+    except TemplateError as e:
+        template_name = getattr(e, "template_name", "unknown")
+        lineno = getattr(e, "lineno", "unknown")
+        result = {
+            "Status": "error",
+            "Message": f"Template error in {component_name}: {e.message}",
+            "Details": {
+                "Template": template_name,
+                "LineNumber": lineno,
+                "StackTrace": traceback.format_exc(),
+            },
+        }
+
     except Exception as e:
         result = {
             "Status": "error",
@@ -335,15 +348,15 @@ def __combine_objects(object1: dict[str, str], object2: dict[str, str]) -> dict[
 
     Example:
 
-        >>> Compiler Library action list "deploy.actions"
+        >>> # Compiler Library action list "deploy.actions"
         - Label: action1
           Kind: NoOp
 
-        >>> User defined "deploy.actions"
+        >>> # User defined "deploy.actions"
         - Label: action2
           Kind: NoOp
 
-        >>> Resulting final "deploy.actions"
+        >>> # Resulting final "deploy.actions"
         - Label: action1
           Kind: NoOp
         - Label: action2

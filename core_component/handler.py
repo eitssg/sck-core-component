@@ -64,10 +64,6 @@ def handler(event: dict, context: dict | None) -> dict:
     task_payload = TaskPayload.model_validate(event)
     log.set_correlation_id(task_payload.correlation_id)
 
-    # Update config (global)
-    # os.environ["OUTPUT_PATH"] = package.get("OutputPath", "")
-    # os.environ["PLATFORM_PATH"] = package.get("PlatformPath", "")
-
     # Setup logging (global)
     log.setup(task_payload.identity)
 
