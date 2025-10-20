@@ -195,7 +195,7 @@ samples = [
     "staticwebsite-v2-quickstart.yaml",
 ]
 
-client = util.get_client() or "core"
+client = "core"
 
 
 def load_sample(sample_name: str) -> str:

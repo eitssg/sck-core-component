@@ -3,7 +3,9 @@ from .preprocessor import load_user_variables, render_component_defintitions
 from .validator import validate_component, validate_specs
 from .handler import handler as pipeline_compiler
 
-__version__ = "0.1.2-pre.7+4d00e98"
+from importlib.metadata import version
+
+__version__ = version("sck-core-component")
 
 __all__ = [
     "pipeline_compiler",

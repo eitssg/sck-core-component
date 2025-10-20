@@ -14,7 +14,7 @@ from core_db.profile.model import ProfileModelFactory
 
 import core_logging as log
 
-client = util.get_client() or "core"
+client = "core"
 
 
 @pytest.fixture(scope="module")
