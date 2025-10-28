@@ -22,7 +22,7 @@ from .bootstrap import *  # noqa: F401
 
 
 @pytest.fixture(scope="module")
-def arguments():
+def arguments(bootstrap_dynamo):
     """Simulate commandline arguments parsing."""
 
     client = "core"
@@ -166,9 +166,9 @@ def upload_package(task_payload: TaskPayload, package_package: str) -> PackageDe
 
 
 @pytest.fixture(scope="module")
-def facts(task_payload: TaskPayload, arguments: dict):
+def facts(task_payload: TaskPayload):
 
-    cf, zf, pf, af = initialize(arguments)
+    cf, zf, pf, af = initialize()
 
     deployment_details = task_payload.deployment_details
 

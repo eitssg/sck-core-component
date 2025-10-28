@@ -72,7 +72,7 @@ def package_sample(sample_name: str) -> str:
             root_path = os.path.join(dirname, rel_root)
             if not os.path.isdir(root_path):
                 continue
-            for root, _dirs, files in os.walk(root_path):
+            for root, _, files in os.walk(root_path):
                 for name in files:
                     file_path = os.path.join(root, name)
                     # Ensure forward slashes inside archive for consistency across platforms
@@ -98,11 +98,11 @@ def task_payload() -> TaskPayload:
     # This is the "deploy" step
     arguments = {
         "client_id": "client-id-12345",
-        "client": "test-client",
+        "client": "core",
         "portfolio": "test-portfolio",
         "app": "test-app",
         "branch": "main",
-        "build": "001",
+        "build": "latest",
         "task": "deploy",
     }
 

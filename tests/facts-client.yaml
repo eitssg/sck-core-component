@@ -1,7 +1,7 @@
 # Client fact data for testing
 ClientId: "client-id-12345"
-Client: "test-client"
-ClientSecret: "test-client-secret-67890"
+Client: "core"
+ClientSecret: "core-secret-67890"
 ClientType: "organization"
 ClientStatus: "active"
 ClientDescription: "Core automation test client organization"

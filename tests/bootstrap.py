@@ -31,9 +31,9 @@ def bootstrap_dynamo():
             ClientFactsFactory.delete_table(wait=True)
         ClientFactsFactory.create_table(wait=True)
 
-        if PortfolioModelFactory.exists(client):
-            PortfolioModelFactory.delete_table(client, wait=True)
-        PortfolioModelFactory.create_table(client, wait=True)
+        if PortfolioFactsFactory.exists(client):
+            PortfolioFactsFactory.delete_table(client, wait=True)
+        PortfolioFactsFactory.create_table(client, wait=True)
 
         if ZoneFactsFactory.exists(client):
             ZoneFactsFactory.delete_table(client, wait=True)
@@ -43,9 +43,10 @@ def bootstrap_dynamo():
             AppFactsFactory.delete_table(client, wait=True)
         AppFactsFactory.create_table(client, wait=True)
 
-        if PortfolioFactsFactory.exists(client):
-            PortfolioFactsFactory.delete_table(client, wait=True)
-        PortfolioFactsFactory.create_table(client, wait=True)
+        # Items / portofolios / apps / branches / builds / components
+        if PortfolioModelFactory.exists(client):
+            PortfolioModelFactory.delete_table(client, wait=True)
+        PortfolioModelFactory.create_table(client, wait=True)
 
         if EventModelFactory.exists(client):
             EventModelFactory.delete_table(client, wait=True)
@@ -57,3 +58,6 @@ def bootstrap_dynamo():
 
     except Exception as e:
         log.error(f"Error during bootstrap: {e}")
+        return False
+    
+    return True
